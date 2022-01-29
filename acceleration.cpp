@@ -294,29 +294,29 @@ std::optional<Intersection> BvhShape::intersect(const bvh::Ray<float>& bvhray) c
 
         bvh::Vector3<float> E1 = V1 - V0;
         bvh::Vector3<float> E2 = V2 - V0;
+        bvh::Vector3<float> S = bvhray.origin - V0;
 
         bvh::Vector3<float> p = cross(bvhray.direction, E2);
         float d = dot(p, E1);
 
         if (d == 0) return std::nullopt;
 
-        bvh::Vector3<float> S = bvhray.origin - V0;
         float u = dot(p, S) / d;
 
         if (u < 0 || u > 1) return std::nullopt;
 
         bvh::Vector3<float> q = cross(S, E1);
-        float v = dot(bvhray.direction, q) / d;
+        float v = dot(q, bvhray.direction) / d;
 
         if (v < 0 || (u + v) > 1) return std::nullopt;
 
-        intersection.t = dot(E2, q) / d;
+        intersection.t = dot(q, E2) / d;
 
         if (intersection.t < 0) return std::nullopt;
 
         intersection.P = vec3FromBvh(bvhray.origin + bvhray.direction * intersection.t);
         
-        if (triangle->N0.has_value()) intersection.N = ((1 - u - v) * triangle->N0.value() + u * triangle->N1.value() + v * triangle->N2.value());
+        if (triangle->N0.has_value()) intersection.N = ((1.0f - u - v) * triangle->N0.value() + u * triangle->N1.value() + v * triangle->N2.value());
         else intersection.N = vec3FromBvh(cross(E2, E1));
         intersection.N = normalize(intersection.N);
 

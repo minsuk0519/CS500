@@ -44,6 +44,8 @@ void Scene::triangleMesh(MeshData* mesh)
 { 
     for (auto triangle : mesh->triangles)
     {
+        //mesh->mat
+
         vec3 V0 = mesh->vertices[triangle.x].pnt;
         vec3 V1 = mesh->vertices[triangle.y].pnt;
         vec3 V2 = mesh->vertices[triangle.z].pnt;
