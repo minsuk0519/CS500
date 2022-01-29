@@ -20,6 +20,8 @@ class Ray {
 public:
     vec3 o, d;
     Ray(const vec3 _o, const vec3 _d) : o(_o), d(_d) {}
+
+    vec3 eval(float t) const { return o + t * d; }
 };
 
 // Vectors:
@@ -49,15 +51,34 @@ public:
 bvh::Ray<float> RayToBvh(const Ray &r);
 Ray RayFromBvh(const bvh::Ray<float> &r);
 
+class Shape;
+class Slab;
+
 // FIX THIS:  This dummy Intersection record is defficient -- just barely enough to compile.
 class Intersection {
 public:
     float t;
+    Shape* object;
+    vec3 P;
+    vec3 N;
+    vec2 UV;
     float distance() const { return t; }  // A function the BVH traversal needs to be supplied.
 };
 
-// FIX THIS; A dummy class -- just barely enough to compile.
-class Shape;
+class Interval
+{
+public:
+    Interval();
+    Interval(float startpoint, float endpoint, vec3 normal1, vec3 normal2);
+
+    void empty();
+    void intersect(const Interval& other);
+    void intersect(const bvh::Ray<float>& ray, const Slab& slab);
+
+    float t0, t1;
+    vec3 N0;
+    vec3 N1;
+};
 
 // Wrapper of a single Shape*:
 

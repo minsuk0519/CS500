@@ -77,9 +77,9 @@ public:
         bvh.node_count = 1;
         bvh.nodes[0].bounding_box_proxy() = global_bbox;
 
-        #pragma omp parallel
+        //#pragma omp parallel
         {
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = 0; i < primitive_count; ++i) {
                 for (int j = 0; j < 3; ++j) {
                     references[j][i].bbox   = bboxes[i];
@@ -88,7 +88,7 @@ public:
                 }
             }
 
-            #pragma omp single
+            //#pragma omp single
             {
                 BuildTask first_task(
                     *this,
@@ -191,7 +191,7 @@ class SpatialSplitBvhBuildTask : public TopDownBuildTask {
     ObjectSplit find_object_split(size_t begin, size_t end, bool is_sorted) const {
         if (!is_sorted) {
             // Sort references by the projection of their centers on this axis
-            #pragma omp taskloop if (end - begin > builder.task_spawn_threshold) grainsize(1) default(shared)
+            //#pragma omp taskloop if (end - begin > builder.task_spawn_threshold) grainsize(1) default(shared)
             for (int axis = 0; axis < 3; ++axis) {
                 std::sort(references[axis] + begin, references[axis] + end, [&] (const Reference& a, const Reference& b) {
                     return a.center[axis] < b.center[axis];
@@ -232,7 +232,7 @@ class SpatialSplitBvhBuildTask : public TopDownBuildTask {
 
         // Allocate two nodes for the children
         size_t first_child;
-        #pragma omp atomic capture
+        //#pragma omp atomic capture
         { first_child = bvh.node_count; bvh.node_count += 2; }
 
         auto& left  = bvh.nodes[first_child + 0];
@@ -282,11 +282,11 @@ class SpatialSplitBvhBuildTask : public TopDownBuildTask {
             reference_marks[references[split.axis][i].primitive_index] = false;
         auto partition_predicate = [&] (const Reference& reference) { return reference_marks[reference.primitive_index]; };
 
-        #pragma omp taskgroup
+        //#pragma omp taskgroup
         {
-            #pragma omp task if (item.work_size() > builder.task_spawn_threshold) default(shared)
+            //#pragma omp task if (item.work_size() > builder.task_spawn_threshold) default(shared)
             { std::stable_partition(references[other_axis[0]] + item.begin, references[other_axis[0]] + item.end, partition_predicate); }
-            #pragma omp task if (item.work_size() > builder.task_spawn_threshold) default(shared)
+            //#pragma omp task if (item.work_size() > builder.task_spawn_threshold) default(shared)
             { std::stable_partition(references[other_axis[1]] + item.begin, references[other_axis[1]] + item.end, partition_predicate); }
         }
 
@@ -510,7 +510,7 @@ public:
 
             // Reserve space for the primitives
             size_t first_primitive;
-            #pragma omp atomic capture
+            //#pragma omp atomic capture
             { first_primitive = reference_count; reference_count += primitive_count; }
 
             // Copy the primitives indices from the references to the BVH

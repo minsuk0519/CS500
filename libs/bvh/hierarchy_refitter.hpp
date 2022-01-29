@@ -38,7 +38,7 @@ public:
 
     template <typename UpdateLeaf>
     void refit(const UpdateLeaf& update_leaf) {
-        #pragma omp parallel
+        //#pragma omp parallel
         {
             refit_in_parallel(update_leaf);
         }

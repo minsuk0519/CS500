@@ -43,20 +43,20 @@ class LinearBvhBuilder : public MortonCodeBasedBuilder<Bvh, Morton> {
         merged_index[end - 1] = 0;
         needs_merge [end - 1] = 0;
 
-        #pragma omp parallel if (end - begin > loop_parallel_threshold)
+        //#pragma omp parallel if (end - begin > loop_parallel_threshold)
         {
             // Determine, for each node, if it should be merged with the one on the right.
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = begin; i < end - 1; ++i)
                 needs_merge[i] = input_levels[i] >= input_levels[i + 1] && (i == begin || input_levels[i] >= input_levels[i - 1]);
 
             // Resolve conflicts between nodes that want to be merged with different neighbors.
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = begin; i < end - 1; i += 2) {
                 if (needs_merge[i] && needs_merge[i + 1])
                     needs_merge[i] = 0;
             }
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = begin + 1; i < end - 1; i += 2) {
                 if (needs_merge[i] && needs_merge[i + 1])
                     needs_merge[i] = 0;
@@ -70,14 +70,14 @@ class LinearBvhBuilder : public MortonCodeBasedBuilder<Bvh, Morton> {
             size_t children_begin = end - children_count;
             size_t unmerged_begin = end - (children_count + unmerged_count);
 
-            #pragma omp single nowait
+            //#pragma omp single nowait
             {
                 next_begin = unmerged_begin;
                 next_end   = children_begin;
             }
 
             // Perform one step of node merging
-            #pragma omp for nowait
+            //#pragma omp for nowait
             for (size_t i = begin; i < end; ++i) {
                 if (needs_merge[i]) {
                     size_t unmerged_index = unmerged_begin + i + 1 - begin - merged_index[i];
@@ -100,7 +100,7 @@ class LinearBvhBuilder : public MortonCodeBasedBuilder<Bvh, Morton> {
             }
 
             // Copy the nodes of the previous level into the current array of nodes.
-            #pragma omp for nowait
+            //#pragma omp for nowait
             for (size_t i = end; i < previous_end; ++i)
                 output_nodes[i] = input_nodes[i];
         }
@@ -143,10 +143,10 @@ public:
         auto input_levels  = level_data.get();
         auto output_levels = level_data.get() + node_count;
 
-        #pragma omp parallel if (primitive_count > loop_parallel_threshold)
+        //#pragma omp parallel if (primitive_count > loop_parallel_threshold)
         {
             // Create the leaves
-            #pragma omp for nowait
+            //#pragma omp for nowait
             for (size_t i = 0; i < primitive_count; ++i) {
                 auto& node = nodes[begin + i];
                 node.bounding_box_proxy()     = bboxes[primitive_indices[i]];
@@ -155,7 +155,7 @@ public:
             }
 
             // Compute the level of the tree where the current node is joined with the next.
-            #pragma omp for nowait
+            //#pragma omp for nowait
             for (size_t i = 0; i < primitive_count - 1; ++i)
                 input_levels[begin + i] = count_leading_zeros(morton_codes[i] ^ morton_codes[i + 1]);
         }

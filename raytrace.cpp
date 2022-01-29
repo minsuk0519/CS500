@@ -16,7 +16,6 @@
 
 #include "geom.h"
 #include "raytrace.h"
-#include "acceleration.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -28,6 +27,13 @@ std::mt19937_64 RNGen(device());
 std::uniform_real_distribution<> myrandom(0.0, 1.0);
 // Call myrandom(RNGen) to get a uniformly distributed random number in [0,1].
 
+#define BASECOLORDISPLAY 1
+#define TVALUEDISPLAY 2
+#define NORMALDISPLAY 3
+#define LIGHTDISPLAY 4
+
+constexpr int DISPLAY_MODE = NORMALDISPLAY;
+
 Scene::Scene() {}
 
 void Scene::Finit()
@@ -36,7 +42,22 @@ void Scene::Finit()
 
 void Scene::triangleMesh(MeshData* mesh) 
 { 
-    //triangleMesh(mesh);
+    for (auto triangle : mesh->triangles)
+    {
+        vec3 V0 = mesh->vertices[triangle.x].pnt;
+        vec3 V1 = mesh->vertices[triangle.y].pnt;
+        vec3 V2 = mesh->vertices[triangle.z].pnt;
+
+        vec3 N0 = normalize(mesh->vertices[triangle.x].nrm);
+        vec3 N1 = normalize(mesh->vertices[triangle.y].nrm);
+        vec3 N2 = normalize(mesh->vertices[triangle.z].nrm);
+
+        vec2 T0 = mesh->vertices[triangle.x].tex;
+        vec2 T1 = mesh->vertices[triangle.y].tex;
+        vec2 T2 = mesh->vertices[triangle.z].tex;
+        
+        vectorOfShapes.push_back(new Triangle(mesh->mat, V0, V1, V2, N0, N1, N2, T0, T1, T2));
+    }
 }
 
 quat Orientation(int i, 
@@ -77,7 +98,7 @@ void Scene::Command(const std::vector<std::string>& strings,
     {
         // syntax: camera x y z   ry   <orientation spec>
         // Eye position (x,y,z),  view orientation (qw qx qy qz),  frustum height ratio ry
-        eye = vec3(f[0], f[1], f[2]);
+        eye = vec3(f[1], f[2], f[3]);
         orient = Orientation(5, strings, f);
         ry = f[4];
     }
@@ -147,15 +168,89 @@ void Scene::Command(const std::vector<std::string>& strings,
 
 void Scene::TraceImage(Color* image, const int pass)
 {
-#pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
-    for (int y=0;  y<height;  y++) {
+    float rx = ry * width / (float)(height);
+    vec3 X = rx * transformVector(orient, Xaxis());
+    vec3 Y = ry * transformVector(orient, Yaxis());
+    vec3 Z = transformVector(orient, Zaxis());
 
+    AccelerationBvh bvh(vectorOfShapes);
+
+#pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
+    for (int y=0;  y<height - 1;  y++) {
         fprintf(stderr, "Rendering %4d\r", y);
-        for (int x=0;  x<width;  x++) {
-            Ray ray();
-            Color color;
+        for (int x=0;  x<width - 1;  x++) {
+            float dx = 2 * (x + 0.5f) / width - 1;
+            float dy = 2 * (y + 0.5f) / height - 1;
+            Ray ray(eye, normalize(dx * X + dy * Y - Z));
+
+            Intersection front, current;
+            front.t = INFINITY;
+
+            front = bvh.intersect(ray);
+            
+            Color color = Color(0, 0, 0);
+
+            if (front.t != INFINITY && front.t > 0)
+            {
+                if (DISPLAY_MODE == BASECOLORDISPLAY)
+                {
+                    color = front.object->mat->Kd;
+                }
+                else if (DISPLAY_MODE == TVALUEDISPLAY)
+                {
+                    color = Color((front.t - 5) / 4.0f);
+                }
+                else if (DISPLAY_MODE == NORMALDISPLAY)
+                {
+                    color = front.N;
+                }
+                else if (DISPLAY_MODE == LIGHTDISPLAY)
+                {
+
+                }
+            }
+
             image[y*width + x] = color;
         }
     }
     fprintf(stderr, "\n");
+}
+
+SimpleBox Sphere::boundingbox()
+{
+    vec3 diag = vec3(r, r, r);
+
+    SimpleBox boundingbox(C - diag);
+    boundingbox.extend(C + diag);
+
+    return boundingbox;
+}
+
+SimpleBox Cylinder::boundingbox()
+{
+    vec3 rrr = vec3(r, r, r);
+
+    SimpleBox boundingbox(B + rrr);
+    boundingbox.extend(B - rrr);
+    boundingbox.extend(B + A + rrr);
+    boundingbox.extend(B + A - rrr);
+
+    return boundingbox;
+}
+
+SimpleBox Box::boundingbox()
+{
+    SimpleBox boundingbox(C);
+    boundingbox.extend(C + d);
+
+    return boundingbox;
+}
+
+SimpleBox Triangle::boundingbox()
+{
+    SimpleBox bounding_box(V0);
+    bounding_box.extend(V1);
+    bounding_box.extend(V2);
+
+    return bounding_box;
 }

@@ -145,20 +145,20 @@ public:
         for (size_t iteration = 0; ; ++iteration) {
             size_t first_node = iteration % u + 1;
 
-            #pragma omp parallel
+            //#pragma omp parallel
             {
                 // Clear the locks
-                #pragma omp for nowait
+                //#pragma omp for nowait
                 for (size_t i = 0; i < bvh.node_count; i++)
                     locks[i] = 0;
 
                 // Search for insertion candidates
-                #pragma omp for
+                //#pragma omp for
                 for (size_t i = first_node; i < bvh.node_count; i += u)
                     outs[i] = search(i);
 
                 // Resolve topological conflicts with locking
-                #pragma omp for
+                //#pragma omp for
                 for (size_t i = first_node; i < bvh.node_count; i += u) {
                     if (outs[i].second <= 0)
                         continue;
@@ -172,7 +172,7 @@ public:
                 }
 
                 // Check the locks to disable conflicting re-insertions
-                #pragma omp for
+                //#pragma omp for
                 for (size_t i = first_node; i < bvh.node_count; i += u) {
                     if (outs[i].second <= 0)
                         continue;
@@ -186,7 +186,7 @@ public:
                 }
 
                 // Perform the reinsertions
-                #pragma omp for
+                //#pragma omp for
                 for (size_t i = first_node; i < bvh.node_count; i += u) {
                     if (outs[i].second > 0)
                         reinsert(i, outs[i].first);

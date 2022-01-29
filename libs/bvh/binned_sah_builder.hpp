@@ -51,13 +51,13 @@ public:
         bvh.node_count = 1;
         bvh.nodes[0].bounding_box_proxy() = global_bbox;
 
-        #pragma omp parallel
+        //#pragma omp parallel
         {
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = 0; i < primitive_count; ++i)
                 bvh.primitive_indices[i] = i;
 
-            #pragma omp single
+            //#pragma omp single
             {
                 BuildTask first_task(*this, bboxes, centers);
                 run_task(first_task, 0, 0, primitive_count, 0);
@@ -204,7 +204,7 @@ public:
         if (begin_right > item.begin && begin_right < item.end) {
             // Allocate two nodes
             size_t first_child;
-            #pragma omp atomic capture
+            //#pragma omp atomic capture
             { first_child = bvh.node_count; bvh.node_count += 2; }
 
             auto& left  = bvh.nodes[first_child + 0];

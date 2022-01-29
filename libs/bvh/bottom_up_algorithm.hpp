@@ -30,7 +30,7 @@ protected:
         parents[0] = 0;
 
         // Compute parent indices
-        #pragma omp parallel for
+        //#pragma omp parallel for
         for (size_t i = 0; i < bvh.node_count; i++) {
             auto& node = bvh.nodes[i];
             if (node.is_leaf())
@@ -51,14 +51,14 @@ protected:
     {
         bvh::assert_in_parallel();
 
-        #pragma omp single nowait
+        //#pragma omp single nowait
         {
             // Special case if the BVH is just a leaf
             if (bvh.node_count == 1)
                 process_leaf(0);
         }
 
-        #pragma omp for
+        //#pragma omp for
         for (size_t i = 1; i < bvh.node_count; ++i) {
             // Only process leaves
             if (!bvh.nodes[i].is_leaf())
@@ -73,7 +73,7 @@ protected:
 
                 // Make sure that the children of this inner node have been processed
                 int previous_flag;
-                #pragma omp atomic capture
+                //#pragma omp atomic capture
                 { previous_flag = flags[j]; flags[j]++; }
                 if (previous_flag != 1)
                     break;

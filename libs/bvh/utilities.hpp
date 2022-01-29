@@ -132,7 +132,7 @@ size_t count_leading_zeros(T value) {
 template <typename Primitive>
 std::unique_ptr<Primitive[]> permute_primitives(const Primitive* primitives, const size_t* indices, size_t primitive_count) {
     auto primitives_copy = std::make_unique<Primitive[]>(primitive_count);
-    #pragma omp parallel for
+    //#pragma omp parallel for
     for (size_t i = 0; i < primitive_count; ++i)
         primitives_copy[i] = primitives[indices[i]];
     return primitives_copy;
@@ -145,7 +145,7 @@ compute_bounding_boxes_and_centers(const Primitive* primitives, size_t primitive
     auto bounding_boxes  = std::make_unique<BoundingBox<Scalar>[]>(primitive_count);
     auto centers         = std::make_unique<Vector3<Scalar>[]>(primitive_count);
 
-    #pragma omp parallel for
+    //#pragma omp parallel for
     for (size_t i = 0; i < primitive_count; ++i) {
         bounding_boxes[i] = primitives[i].bounding_box();
         centers[i]        = primitives[i].center();
@@ -159,11 +159,11 @@ template <typename Scalar>
 BoundingBox<Scalar> compute_bounding_boxes_union(const BoundingBox<Scalar>* bboxes, size_t count) {
     auto bbox = BoundingBox<Scalar>::empty();
 
-    #pragma omp declare reduction \
+    //#pragma omp declare reduction \
         (bbox_extend:BoundingBox<Scalar>:omp_out.extend(omp_in)) \
         initializer(omp_priv = BoundingBox<Scalar>::empty())
 
-    #pragma omp parallel for reduction(bbox_extend: bbox)
+    //#pragma omp parallel for reduction(bbox_extend: bbox)
     for (size_t i = 0; i < count; ++i)
         bbox.extend(bboxes[i]);
 

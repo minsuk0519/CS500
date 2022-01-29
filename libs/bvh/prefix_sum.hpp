@@ -25,13 +25,13 @@ public:
 
         // This algorithm is not effective when there are fewer than 2 threads.
         if (thread_count <= 2) {
-            #pragma omp single
+            //#pragma omp single
             { std::partial_sum(input, input + count, output, f); }
             return;
         }
 
         // Allocate temporary storage
-        #pragma omp single
+        //#pragma omp single
         {
             if (per_thread_data_size < thread_count + 1) {
                 per_thread_sums = std::make_unique<T[]>(thread_count + 1);
@@ -43,19 +43,19 @@ public:
         T sum = T(0);
 
         // Compute partial sums
-        #pragma omp for nowait schedule(static)
+        //#pragma omp for nowait schedule(static)
         for (size_t i = 0; i < count; ++i) {
             sum = f(sum, input[i]);
             output[i] = sum;
         }
         per_thread_sums[thread_id + 1] = sum;
 
-        #pragma omp barrier
+        //#pragma omp barrier
 
         // Fix the sums
         auto offset = std::accumulate(per_thread_sums.get(), per_thread_sums.get() + thread_id + 1, 0, f);
 
-        #pragma omp for schedule(static)
+        //#pragma omp for schedule(static)
         for (size_t i = 0; i < count; ++i)
             output[i] = f(output[i], offset);
     }

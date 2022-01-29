@@ -58,9 +58,9 @@ protected:
 
         MortonEncoder<Morton, Scalar> encoder(global_bbox, size_t(1) << bit_count);
 
-        #pragma omp parallel if (primitive_count > loop_parallel_threshold)
+        //#pragma omp parallel if (primitive_count > loop_parallel_threshold)
         {
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = 0; i < primitive_count; ++i) {
                 morton_codes[i] = encoder.encode(centers[i]);
                 primitive_indices[i] = i;

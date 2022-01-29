@@ -34,7 +34,7 @@ public:
         size_t thread_id    = bvh::get_thread_id();
 
         // Allocate temporary storage
-        #pragma omp single
+        //#pragma omp single
         {
             size_t data_size = (thread_count + 1) * bucket_count;
             if (per_thread_data_size < data_size) {
@@ -47,11 +47,11 @@ public:
             auto buckets = &per_thread_buckets[thread_id * bucket_count];
             std::fill(buckets, buckets + bucket_count, 0);
 
-            #pragma omp for schedule(static)
+            //#pragma omp for schedule(static)
             for (size_t i = 0; i < count; ++i)
                 buckets[(keys[i] >> bit) & mask]++;
 
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = 0; i < bucket_count; i++) {
                 // Do a prefix sum of the elements in one bucket over all threads
                 size_t sum = 0;
@@ -69,14 +69,14 @@ public:
                 buckets[i] += old_sum;
             }
 
-            #pragma omp for schedule(static)
+            //#pragma omp for schedule(static)
             for (size_t i = 0; i < count; ++i) {
                 size_t j = buckets[(keys[i] >> bit) & mask]++;
                 keys_copy[j]   = keys[i];
                 values_copy[j] = values[i];
             }
 
-            #pragma omp single
+            //#pragma omp single
             {
                 std::swap(keys_copy, keys);
                 std::swap(values_copy, values);

@@ -43,9 +43,9 @@ public:
         auto primitive_counts = std::make_unique<size_t[]>(bvh.node_count);
         size_t node_count = 0;
 
-        #pragma omp parallel
+        //#pragma omp parallel
         {
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = 0; i < bvh.node_count; ++i)
                 node_counts[i] = 1;
 
@@ -83,7 +83,7 @@ public:
             prefix_sum.sum_in_parallel(node_counts.get(), node_counts.get(), bvh.node_count);
             prefix_sum.sum_in_parallel(primitive_counts.get(), primitive_counts.get(), bvh.node_count);
 
-            #pragma omp single
+            //#pragma omp single
             {
                 node_count = node_counts[bvh.node_count - 1];
                 if (primitive_counts[0] > 0) {
@@ -103,7 +103,7 @@ public:
                 }
             }
 
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = 1; i < bvh.node_count; i++) {
                 size_t node_index = node_counts[i - 1];
                 if (node_index == node_counts[i])

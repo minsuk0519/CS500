@@ -21,7 +21,7 @@ protected:
     Scalar compute_cost(const Bvh& bvh) const {
         // Compute the SAH cost for the entire BVH
         Scalar cost(0);
-        #pragma omp parallel for reduction(+: cost)
+        //#pragma omp parallel for reduction(+: cost)
         for (size_t i = 0; i < bvh.node_count; ++i) {
             if (bvh.nodes[i].is_leaf())
                 cost += bvh.nodes[i].bounding_box_proxy().half_area() * bvh.nodes[i].primitive_count;

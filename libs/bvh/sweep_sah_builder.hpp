@@ -71,11 +71,11 @@ public:
         bvh.node_count = 1;
         bvh.nodes[0].bounding_box_proxy() = global_bbox;
 
-        #pragma omp parallel
+        //#pragma omp parallel
         {
             // Sort the primitives on each axis once
             for (int axis = 0; axis < 3; ++axis) {
-                #pragma omp single
+                //#pragma omp single
                 {
                     sorted_references[axis] = unsorted_references;
                     unsorted_references = reference_data.get() + axis * primitive_count;
@@ -87,7 +87,7 @@ public:
                            sorted_references[1] == bvh.primitive_indices.get());
                 }
 
-                #pragma omp for
+                //#pragma omp for
                 for (size_t i = 0; i < primitive_count; ++i) {
                     sorted_keys[i] = radix_sort.make_key(centers[i][axis]);
                     sorted_references[axis][i] = i;
@@ -102,7 +102,7 @@ public:
                     sizeof(Scalar) * CHAR_BIT);
             }
 
-            #pragma omp single
+            //#pragma omp single
             {
                 BuildTask first_task(*this, bboxes, centers, sorted_references, costs, mark_data.get());
                 run_task(first_task, 0, 0, primitive_count, 0);
@@ -181,7 +181,7 @@ public:
         [[maybe_unused]] bool should_spawn_tasks = item.work_size() > builder.task_spawn_threshold;
 
         // Sweep primitives to find the best cost
-        #pragma omp taskloop if (should_spawn_tasks) grainsize(1) default(shared)
+        //#pragma omp taskloop if (should_spawn_tasks) grainsize(1) default(shared)
         for (int axis = 0; axis < 3; ++axis)
             best_splits[axis] = find_split(axis, item.begin, item.end);
 
@@ -216,18 +216,18 @@ public:
         auto right_bbox = BoundingBox<Scalar>::empty();
 
         // Partition reference arrays and compute bounding boxes
-        #pragma omp taskgroup
+        //#pragma omp taskgroup
         {
-            #pragma omp task if (should_spawn_tasks) default(shared)
+            //#pragma omp task if (should_spawn_tasks) default(shared)
             { std::stable_partition(references[other_axis[0]] + item.begin, references[other_axis[0]] + item.end, partition_predicate); }
-            #pragma omp task if (should_spawn_tasks) default(shared)
+            //#pragma omp task if (should_spawn_tasks) default(shared)
             { std::stable_partition(references[other_axis[1]] + item.begin, references[other_axis[1]] + item.end, partition_predicate); }
-            #pragma omp task if (should_spawn_tasks) default(shared)
+            //#pragma omp task if (should_spawn_tasks) default(shared)
             {
                 for (size_t i = item.begin; i < split_index; ++i)
                     left_bbox.extend(bboxes[references[best_axis][i]]);
             }
-            #pragma omp task if (should_spawn_tasks) default(shared)
+            //#pragma omp task if (should_spawn_tasks) default(shared)
             {
                 for (size_t i = split_index; i < item.end; ++i)
                     right_bbox.extend(bboxes[references[best_axis][i]]);
@@ -236,7 +236,7 @@ public:
 
         // Allocate space for children
         size_t first_child;
-        #pragma omp atomic capture
+        //#pragma omp atomic capture
         { first_child = bvh.node_count; bvh.node_count += 2; }
 
         auto& left  = bvh.nodes[first_child + 0];

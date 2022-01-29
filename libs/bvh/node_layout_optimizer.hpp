@@ -39,10 +39,10 @@ public:
         auto sorted_keys      = keys.get();
         auto unsorted_keys    = keys.get() + pair_count;
 
-        #pragma omp parallel
+        //#pragma omp parallel
         {
             // Compute the surface area of each pair of nodes
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = 1; i < bvh.node_count; i += 2) {
                 auto area = bvh.nodes[i + 0]
                     .bounding_box_proxy()
@@ -68,7 +68,7 @@ public:
                 sizeof(Scalar) * CHAR_BIT);
 
             // Copy the nodes of the old layout into the new one
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = 0; i < pair_count; ++i) {
                 auto j = sorted_indices[pair_count - i - 1];
                 auto k = 1 + j * 2;
@@ -79,7 +79,7 @@ public:
             }
 
             // Remap children indices to the new layout
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = 0; i < bvh.node_count; ++i) {
                 if (nodes_copy[i].is_leaf())
                     continue;

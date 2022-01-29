@@ -47,13 +47,13 @@ public:
         Scalar total_priority = 0;
         size_t reference_count = 0;
 
-        #pragma omp parallel
+        //#pragma omp parallel
         {
-            #pragma omp for reduction(+: total_priority)
+            //#pragma omp for reduction(+: total_priority)
             for (size_t i = 0; i < primitive_count; ++i)
                 total_priority += compute_priority(primitives[i], primitives[i].bounding_box());
 
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = 0; i < primitive_count; ++i) {
                 auto priority = compute_priority(primitives[i], primitives[i].bounding_box());
                 split_indices[i] = 1 + priority * (Scalar(primitive_count) * split_factor / total_priority);
@@ -61,7 +61,7 @@ public:
 
             prefix_sum.sum_in_parallel(split_indices.get(), split_indices.get(), primitive_count);
 
-            #pragma omp single
+            //#pragma omp single
             {
                 reference_count = split_indices[primitive_count - 1];
                 bboxes = std::make_unique<BoundingBox<Scalar>[]>(reference_count);
@@ -71,7 +71,7 @@ public:
 
             std::stack<std::pair<BoundingBox<Scalar>, size_t>> stack;
 
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = 0; i < primitive_count; ++i) {
                 size_t split_begin = i > 0 ? split_indices[i - 1] : 0;
                 size_t split_count = split_indices[i] - split_begin;
@@ -137,7 +137,7 @@ public:
 
     /// Remaps BVH primitive indices and removes duplicate triangle references in the BVH leaves.
     void repair_bvh_leaves(Bvh<Scalar>& bvh) {
-        #pragma omp parallel for
+        //#pragma omp parallel for
         for (size_t i = 0; i < bvh.node_count; ++i) {
             auto& node = bvh.nodes[i];
             if (node.is_leaf()) {

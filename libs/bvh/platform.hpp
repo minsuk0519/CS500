@@ -29,17 +29,10 @@
 
 namespace bvh {
 
-#ifdef _OPENMP
-inline size_t get_thread_count() { return omp_get_num_threads(); }
-inline size_t get_thread_id()    { return omp_get_thread_num(); }
-inline void assert_not_in_parallel() { assert(omp_get_level() == 0); }
-inline void assert_in_parallel() { assert(omp_get_level() > 0); }
-#else
 inline constexpr size_t get_thread_count() { return 1; }
 inline constexpr size_t get_thread_id()    { return 0; }
 inline void assert_not_in_parallel() {}
 inline void assert_in_parallel() {}
-#endif
 
 } // namespace bvh
 

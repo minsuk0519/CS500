@@ -4,6 +4,8 @@
 
 #include <vector>
 
+#include "acceleration.h"
+
 const float PI = 3.14159f;
 const float Radians = PI/180.0f;    // Convert degrees to radians
 
@@ -70,42 +72,84 @@ public:
 ////////////////////////////////////////////////////////////////////////
 // Shape
 ////////////////////////////////////////////////////////////////////////
+enum SHAPE_TYPE
+{
+    SHAPE_SPHERE,
+    SHAPE_CYLINDER,
+    SHAPE_BOX,
+    SHAPE_TRIANGLE,
+};
+
+class Slab
+{
+public:
+    vec3 N;
+    float d1, d2;
+};
+
 class Shape
 {
 public:
-    Shape(Material* material) : mat(material) {}
+    Shape(Material* material, SHAPE_TYPE shapetype) : mat(material), type(shapetype) {}
     Material* mat;
+    SHAPE_TYPE type;
+
+    virtual SimpleBox boundingbox() = 0;
 };
 
 class Sphere : public Shape
 {
 public:
-    Sphere(Material* material, const vec3 centerPos, const float r) : Shape(material), center(centerPos), radius(r) {}
-    vec3 center;
-    float radius;
+    Sphere(Material* material, const vec3& center, const float radius) : Shape(material, SHAPE_SPHERE), C(center), r(radius) {}
+    vec3 C;
+    float r;
+
+    virtual SimpleBox boundingbox() override;
 };
 
 class Cylinder : public Shape
 {
 public:
-    Cylinder(Material* material, const vec3 centerPos, const vec3 axisVector, float r) : Shape(material), center(centerPos), axis(axisVector), radius(r) {}
-    vec3 center;
-    vec3 axis;
-    float radius;
+    Cylinder(Material* material, const vec3& center, const vec3& axis, float radius) : Shape(material, SHAPE_CYLINDER), B(center), A(axis), r(radius) {}
+    vec3 B;
+    vec3 A;
+    float r;
+
+    virtual SimpleBox boundingbox() override;
 };
 
 class Box : public Shape
 {
 public:
-    Box(Material* material, const vec3 centerPos, const vec3 diagonal) : Shape(material), center(centerPos), diag(diagonal) {}
-    vec3 center;
-    vec3 diag;
+    Box(Material* material, const vec3& corner, const vec3& diagonal) : Shape(material, SHAPE_BOX), C(corner), d(diagonal) {}
+    vec3 C;
+    vec3 d;
+
+    virtual SimpleBox boundingbox() override;
 };
 
 class Triangle : public Shape
 {
 public:
+    Triangle(Material* material, vec3 v0, vec3 v1, vec3 v2) : Shape(material, SHAPE_TRIANGLE), V0(v0), V1(v1), V2(v2) {}
+    Triangle(Material* material, vec3 v0, vec3 v1, vec3 v2, vec3 n0, vec3 n1, vec3 n2) : 
+        Shape(material, SHAPE_TRIANGLE), V0(v0), V1(v1), V2(v2), N0(n0), N1(n1), N2(n2) {}
+    Triangle(Material* material, vec3 v0, vec3 v1, vec3 v2, vec3 n0, vec3 n1, vec3 n2, vec2 t0, vec2 t1, vec2 t2) : 
+        Shape(material, SHAPE_TRIANGLE), V0(v0), V1(v1), V2(v2), N0(n0), N1(n1), N2(n2), T0(t0), T1(t1), T2(t2) {}
 
+    vec3 V0;
+    vec3 V1;
+    vec3 V2;
+
+    std::optional<vec3> N0;
+    std::optional<vec3> N1;
+    std::optional<vec3> N2;
+
+    std::optional<vec2> T0;
+    std::optional<vec2> T1;
+    std::optional<vec2> T2;
+
+    virtual SimpleBox boundingbox() override;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -142,6 +186,4 @@ public:
     // The main program will call the TraceImage method to generate
     // and return the image.  This is the Ray Tracer!
     void TraceImage(Color* image, const int pass);
-
-    void sphere(const vec3 center, const float radius, Material* mat);
 };

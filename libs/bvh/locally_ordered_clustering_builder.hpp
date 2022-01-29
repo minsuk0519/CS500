@@ -46,7 +46,7 @@ class LocallyOrderedClusteringBuilder : public MortonCodeBasedBuilder<Bvh, Morto
         size_t next_begin = 0;
         size_t next_end   = 0;
 
-        #pragma omp parallel if (end - begin > loop_parallel_threshold)
+        //#pragma omp parallel if (end - begin > loop_parallel_threshold)
         {
             auto thread_count = bvh::get_thread_count();
             auto thread_id    = bvh::get_thread_id();
@@ -115,11 +115,11 @@ class LocallyOrderedClusteringBuilder : public MortonCodeBasedBuilder<Bvh, Morto
                 distance_matrix[0] = last;
             }
 
-            #pragma omp barrier
+            //#pragma omp barrier
 
             // Mark nodes that are the closest as merged, but keep
             // the one with lowest index to act as the parent
-            #pragma omp for
+            //#pragma omp for
             for (size_t i = begin; i < end; ++i) {
                 auto j = neighbors[i];
                 bool is_mergeable = neighbors[j] == i;
@@ -134,7 +134,7 @@ class LocallyOrderedClusteringBuilder : public MortonCodeBasedBuilder<Bvh, Morto
             size_t children_begin = end - children_count;
             size_t unmerged_begin = end - (children_count + unmerged_count);
 
-            #pragma omp single nowait
+            //#pragma omp single nowait
             {
                 next_begin = unmerged_begin;
                 next_end   = children_begin;
@@ -142,7 +142,7 @@ class LocallyOrderedClusteringBuilder : public MortonCodeBasedBuilder<Bvh, Morto
 
             // Finally, merge nodes that are marked for merging and create
             // their parents using the indices computed previously.
-            #pragma omp for nowait
+            //#pragma omp for nowait
             for (size_t i = begin; i < end; ++i) {
                 auto j = neighbors[i];
                 if (neighbors[j] == i) {
@@ -164,7 +164,7 @@ class LocallyOrderedClusteringBuilder : public MortonCodeBasedBuilder<Bvh, Morto
             }
 
             // Copy the nodes of the previous level into the current array of nodes.
-            #pragma omp for nowait
+            //#pragma omp for nowait
             for (size_t i = end; i < previous_end; ++i)
                 output[i] = input[i];
         }
@@ -204,7 +204,7 @@ public:
         size_t previous_end = end;
 
         // Create the leaves
-        #pragma omp parallel for
+        //#pragma omp parallel for
         for (size_t i = 0; i < primitive_count; ++i) {
             auto& node = nodes[begin + i];
             node.bounding_box_proxy()     = bboxes[primitive_indices[i]];

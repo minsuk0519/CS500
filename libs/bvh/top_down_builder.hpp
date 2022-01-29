@@ -62,7 +62,7 @@ protected:
                 auto first_item = more_work->first;
                 if (first_item.work_size() > task_spawn_threshold) {
                     BuildTask new_task(task);
-                    #pragma omp task firstprivate(new_task, first_item)
+                    //#pragma omp task firstprivate(new_task, first_item)
                     { run_task(new_task, first_item); }
                 } else {
                     stack.push(first_item);
