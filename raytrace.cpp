@@ -27,12 +27,19 @@ std::mt19937_64 RNGen(device());
 std::uniform_real_distribution<> myrandom(0.0, 1.0);
 // Call myrandom(RNGen) to get a uniformly distributed random number in [0,1].
 
+#define TIME_MEASURE 1
+#ifdef TIME_MEASURE
+    #include <chrono>
+#endif
+
 #define BASECOLORDISPLAY 1
 #define TVALUEDISPLAY 2
 #define NORMALDISPLAY 3
 #define LIGHTDISPLAY 4
+#define POSITIONDISPLAY 5
+#define TEXDISPLAY 6
 
-constexpr int DISPLAY_MODE = NORMALDISPLAY;
+constexpr int DISPLAY_MODE = BASECOLORDISPLAY;
 
 Scene::Scene() {}
 
@@ -42,17 +49,15 @@ void Scene::Finit()
 
 void Scene::triangleMesh(MeshData* mesh) 
 { 
-    for (auto triangle : mesh->triangles)
+    for (auto& triangle : mesh->triangles)
     {
-        //mesh->mat
-
         vec3 V0 = mesh->vertices[triangle.x].pnt;
         vec3 V1 = mesh->vertices[triangle.y].pnt;
         vec3 V2 = mesh->vertices[triangle.z].pnt;
 
-        vec3 N0 = normalize(mesh->vertices[triangle.x].nrm);
-        vec3 N1 = normalize(mesh->vertices[triangle.y].nrm);
-        vec3 N2 = normalize(mesh->vertices[triangle.z].nrm);
+        vec3 N0 = mesh->vertices[triangle.x].nrm;
+        vec3 N1 = mesh->vertices[triangle.y].nrm;
+        vec3 N2 = mesh->vertices[triangle.z].nrm;
 
         vec2 T0 = mesh->vertices[triangle.x].tex;
         vec2 T1 = mesh->vertices[triangle.y].tex;
@@ -133,21 +138,39 @@ void Scene::Command(const std::vector<std::string>& strings,
         // syntax: sphere x y z   r
         // Creates a Shape instance for a sphere defined by a center and radius
         //realtime->sphere(vec3(f[1], f[2], f[3]), f[4], currentMat);
-        vectorOfShapes.push_back(new Sphere(currentMat, vec3(f[1], f[2], f[3]), f[4]));
-        if (currentMat->isLight()) lights.push_back(dynamic_cast<Light*>(currentMat));
+        Shape* shape = new Sphere(currentMat, vec3(f[1], f[2], f[3]), f[4]);
+        vectorOfShapes.push_back(shape);
+        if (currentMat->isLight())
+        {
+            Light* light = dynamic_cast<Light*>(currentMat);
+            light->center = vec3(f[1], f[2], f[3]);
+            lights.push_back(light);
+        }
     }
     else if (c == "box") 
     {
         // syntax: box bx by bz   dx dy dz
         // Creates a Shape instance for a box defined by a corner point and diagonal vector
-        vectorOfShapes.push_back(new Box(currentMat, vec3(f[1], f[2], f[3]), vec3(f[4], f[5], f[6])));
-        if (currentMat->isLight()) lights.push_back(dynamic_cast<Light*>(currentMat));
+        Shape* shape = new Box(currentMat, vec3(f[1], f[2], f[3]), vec3(f[4], f[5], f[6]));
+        vectorOfShapes.push_back(shape);
+        if (currentMat->isLight())
+        {
+            Light* light = dynamic_cast<Light*>(currentMat);
+            light->center = vec3(f[1], f[2], f[3]) + 0.5f * vec3(f[4], f[5], f[6]);
+            lights.push_back(light);
+        }
     }
     else if (c == "cylinder") {
         // syntax: cylinder bx by bz   ax ay az  r
         // Creates a Shape instance for a cylinder defined by a base point, axis vector, and radius
-        vectorOfShapes.push_back(new Cylinder(currentMat, vec3(f[1], f[2], f[3]), vec3(f[4], f[5], f[6]), f[7]));
-        if (currentMat->isLight()) lights.push_back(dynamic_cast<Light*>(currentMat));
+        Shape* shape = new Cylinder(currentMat, vec3(f[1], f[2], f[3]), vec3(f[4], f[5], f[6]), f[7]);
+        vectorOfShapes.push_back(shape);
+        if (currentMat->isLight())
+        {
+            Light* light = dynamic_cast<Light*>(currentMat);
+            light->center = vec3(f[1], f[2], f[3]) + 0.5f * vec3(f[4], f[5], f[6]);
+            lights.push_back(light);
+        }
     }
     else if (c == "mesh") {
         // syntax: mesh   filename   tx ty tz   s   <orientation>
@@ -177,10 +200,15 @@ void Scene::TraceImage(Color* image, const int pass)
 
     AccelerationBvh bvh(vectorOfShapes);
 
+#ifdef TIME_MEASURE
+    auto before = std::chrono::high_resolution_clock::now();
+    fprintf(stderr, "Trace Image start!\n");
+#endif // TIME_MEASURE
+
 #pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
-    for (int y=0;  y<height - 1;  y++) {
+    for (int y=0;  y<height;  y++) {
         fprintf(stderr, "Rendering %4d\r", y);
-        for (int x=0;  x<width - 1;  x++) {
+        for (int x=0;  x<width;  x++) {
             float dx = 2 * (x + 0.5f) / width - 1;
             float dy = 2 * (y + 0.5f) / height - 1;
             Ray ray(eye, normalize(dx * X + dy * Y - Z));
@@ -205,10 +233,32 @@ void Scene::TraceImage(Color* image, const int pass)
                 else if (DISPLAY_MODE == NORMALDISPLAY)
                 {
                     color = front.N;
+
+                    //prevent the underflow for hdr format image
+                    color.x = std::max(color.x, 0.0f);
+                    color.y = std::max(color.y, 0.0f);
+                    color.z = std::max(color.z, 0.0f);
+                }
+                else if (DISPLAY_MODE == POSITIONDISPLAY)
+                {
+                    color = (front.P + vec3(0, 0, 1)) / 2.0f;
+
+                    //prevent the underflow for hdr format image
+                    color.x = std::max(color.x, 0.0f);
+                    color.y = std::max(color.y, 0.0f);
+                    color.z = std::max(color.z, 0.0f);
                 }
                 else if (DISPLAY_MODE == LIGHTDISPLAY)
                 {
-
+                    for (auto light : lights)
+                    {
+                        vec3 L = light->center;
+                        color += front.object->mat->Kd * dot(front.N, L);
+                    }
+                }
+                else if (DISPLAY_MODE == TEXDISPLAY)
+                {
+                    color = vec3(front.UV.x, front.UV.y, 0.0);
                 }
             }
 
@@ -216,6 +266,14 @@ void Scene::TraceImage(Color* image, const int pass)
         }
     }
     fprintf(stderr, "\n");
+
+#ifdef TIME_MEASURE
+    auto after = std::chrono::high_resolution_clock::now();
+    float result = (float)(std::chrono::duration<double, std::ratio<1, 1>>(after -before).count());
+
+    fprintf(stderr, "Trace Image time passed : %4f\n", result);
+#endif // TIME_MEASURE
+
 }
 
 SimpleBox Sphere::boundingbox()

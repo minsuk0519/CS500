@@ -87,7 +87,7 @@ std::optional<Intersection> BvhShape::intersect(const bvh::Ray<float>& bvhray) c
             intersection.N = normalize(intersection.P - vec3FromBvh(C));
             float theta = atan2(intersection.N.y, intersection.N.x);
             float phi = acos(intersection.N.z);
-            intersection.UV = vec2(theta / (2 * PI), phi / PI);
+            intersection.UV = vec2(theta / (2 * PI) + 0.5, phi / PI);
             intersection.object = shape;
         }
     }
@@ -161,20 +161,19 @@ std::optional<Intersection> BvhShape::intersect(const bvh::Ray<float>& bvhray) c
         {
             intersection.P = vec3FromBvh(intersection.t * bvhray.direction + bvhray.origin);
             vec2 planeDir;
-            vec3 pointTocenter = intersection.P - vec3FromBvh(C) + vec3(d[0] * 0.5, d[1] * 0.5, d[2] * 0.5);
-            if (intersection.N == vec3(1, 0, 0))
+            vec3 pointTocenter = intersection.P - vec3FromBvh(C) - vec3(d[0] * 0.5, d[1] * 0.5, d[2] * 0.5);
+            if (intersection.N == vec3(1, 0, 0) || intersection.N == vec3(-1, 0, 0))
             {
-                planeDir = vec2(pointTocenter.y, pointTocenter.z);
+                planeDir = vec2(pointTocenter.y * 2 / d[1], pointTocenter.z * 2 / d[2]);
             }
-            else if (intersection.N == vec3(0, 1, 0))
+            else if (intersection.N == vec3(0, 1, 0) || intersection.N == vec3(0, -1, 0))
             {
-                planeDir = vec2(pointTocenter.x, pointTocenter.z);
+                planeDir = vec2(pointTocenter.x * 2 / d[0], pointTocenter.z * 2 / d[2]);
             }
-            else if (intersection.N == vec3(0, 0, 1))
+            else if (intersection.N == vec3(0, 0, 1) || intersection.N == vec3(0, 0, -1))
             {
-                planeDir = vec2(pointTocenter.x, pointTocenter.y);
+                planeDir = vec2(pointTocenter.x * 2 / d[0], pointTocenter.y * 2 / d[1]);
             }
-            planeDir = normalize(planeDir);
             intersection.UV = vec2(planeDir.x * 0.5 + 0.5, planeDir.y * 0.5 + 0.5);
             intersection.object = shape;
         }
@@ -320,7 +319,7 @@ std::optional<Intersection> BvhShape::intersect(const bvh::Ray<float>& bvhray) c
         else intersection.N = vec3FromBvh(cross(E2, E1));
         intersection.N = normalize(intersection.N);
 
-        if (triangle->T0.has_value()) intersection.UV = (1 - u - v) * triangle->T0.value() + u * triangle->T1.value() + v * triangle->T2.value();
+        if (triangle->T0.has_value()) intersection.UV = (1.0f - u - v) * triangle->T0.value() + u * triangle->T1.value() + v * triangle->T2.value();
         else intersection.UV = vec2(0, 0);
         intersection.object = shape;
     }

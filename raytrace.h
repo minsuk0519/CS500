@@ -67,6 +67,8 @@ public:
     Light(const vec3 e) : Material() { Kd = e; }
     virtual bool isLight() { return true; }
     //virtual void apply(const unsigned int program);
+
+    vec3 center;
 };
 
 ////////////////////////////////////////////////////////////////////////
