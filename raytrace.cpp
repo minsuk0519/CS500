@@ -27,7 +27,7 @@ std::mt19937_64 RNGen(device());
 std::uniform_real_distribution<> myrandom(0.0, 1.0);
 // Call myrandom(RNGen) to get a uniformly distributed random number in [0,1].
 
-#define TIME_MEASURE 1
+//#define TIME_MEASURE
 #ifdef TIME_MEASURE
     #include <chrono>
 #endif
@@ -39,7 +39,7 @@ std::uniform_real_distribution<> myrandom(0.0, 1.0);
 #define POSITIONDISPLAY 5
 #define TEXDISPLAY 6
 
-constexpr int DISPLAY_MODE = BASECOLORDISPLAY;
+constexpr int DISPLAY_MODE = LIGHTDISPLAY;
 
 Scene::Scene() {}
 
@@ -253,7 +253,9 @@ void Scene::TraceImage(Color* image, const int pass)
                     for (auto light : lights)
                     {
                         vec3 L = light->center;
-                        color += front.object->mat->Kd * dot(front.N, L);
+                        vec3 P = front.P;
+                        float diffuse = std::max(std::min(dot(front.N, -normalize(P - L)), 1.0f), 0.0f);
+                        color += front.object->mat->Kd * diffuse;
                     }
                 }
                 else if (DISPLAY_MODE == TEXDISPLAY)

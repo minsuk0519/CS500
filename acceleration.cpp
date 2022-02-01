@@ -180,11 +180,12 @@ std::optional<Intersection> BvhShape::intersect(const bvh::Ray<float>& bvhray) c
     }
     else if (shape->type == SHAPE_CYLINDER)
     {
-        bvh::Vector3<float> B = vec3ToBvh(dynamic_cast<Cylinder*>(shape)->B);
-        bvh::Vector3<float> A = vec3ToBvh(dynamic_cast<Cylinder*>(shape)->A);
-        float r = dynamic_cast<Cylinder*>(shape)->r;
+        Cylinder* cylinder = dynamic_cast<Cylinder*>(shape);
+        bvh::Vector3<float> B = vec3ToBvh(cylinder->B);
+        bvh::Vector3<float> A = vec3ToBvh(cylinder->A);
+        float r = cylinder->r;
 
-        vec3 rot_A = normalize(dynamic_cast<Cylinder*>(shape)->A);
+        vec3 rot_A = normalize(cylinder->A);
         vec3 rot_B;
         if (dot(rot_A, vec3(0, 0, 1)) != 1) rot_B = normalize(cross(vec3(0, 0, 1), rot_A));
         else rot_B = normalize(cross(vec3(1, 0, 0), rot_A));
@@ -276,11 +277,12 @@ std::optional<Intersection> BvhShape::intersect(const bvh::Ray<float>& bvhray) c
         {
             intersection.P = vec3FromBvh(bvhray.origin + bvhray.direction * intersection.t);
 
+            float theta = atan2(intersection.N.y, intersection.N.x);
+            intersection.UV = vec2(theta / (2.0f * PI) + 0.5, dot((intersection.P - cylinder->B), normalize(cylinder->A)) / (length(A)));
+            intersection.object = shape;
+
             rotation = glm::transpose(rotation);
             intersection.N = normalize(rotation * intersection.N);
-            float theta = atan2(intersection.N.y, intersection.N.x);
-            intersection.UV = vec2(theta / (2.0f * PI), intersection.N.z / (length(A)));
-            intersection.object = shape;
         }
     }
     else if (shape->type == SHAPE_TRIANGLE)
