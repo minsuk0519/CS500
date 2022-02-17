@@ -78,8 +78,8 @@ std::optional<Intersection> BvhShape::intersect(const bvh::Ray<float>& bvhray) c
         float tplus = (-b + discriminant);
         float tminus = (-b - discriminant);
 
-        if (tminus > 0) intersection.t = tminus;
-        else if (tplus > 0) intersection.t = tplus;
+        if (tminus > epsilon) intersection.t = tminus;
+        else if (tplus > epsilon) intersection.t = tplus;
 
         if (intersection.t != 0)
         {
@@ -128,16 +128,16 @@ std::optional<Intersection> BvhShape::intersect(const bvh::Ray<float>& bvhray) c
             }
         }
 
-        if (t0 > t1) return std::nullopt;
+        if (t0 >= t1) return std::nullopt;
 
         if (t1 < t0)
         {
-            if (t1 > 0)
+            if (t1 > epsilon)
             {
                 intersection.t = t1;
                 intersection.N = N1;
             }
-            else if (t0 > 0)
+            else if (t0 > epsilon)
             {
                 intersection.t = t0;
                 intersection.N = N0;
@@ -145,12 +145,12 @@ std::optional<Intersection> BvhShape::intersect(const bvh::Ray<float>& bvhray) c
         }
         else
         {
-            if (t0 > 0)
+            if (t0 > epsilon)
             {
                 intersection.t = t0;
                 intersection.N = N0;
             }
-            else if (t1 > 0)
+            else if (t1 > epsilon)
             {
                 intersection.t = t1;
                 intersection.N = N1;
@@ -248,12 +248,12 @@ std::optional<Intersection> BvhShape::intersect(const bvh::Ray<float>& bvhray) c
 
         if (t1 < t0)
         {
-            if (t1 > 0)
+            if (t1 > epsilon)
             {
                 intersection.t = t1;
                 intersection.N = N1;
             }
-            else if (t0 > 0)
+            else if (t0 > epsilon)
             {
                 intersection.t = t0;
                 intersection.N = N0;
@@ -261,12 +261,12 @@ std::optional<Intersection> BvhShape::intersect(const bvh::Ray<float>& bvhray) c
         }
         else
         {
-            if (t0 > 0)
+            if (t0 > epsilon)
             {
                 intersection.t = t0;
                 intersection.N = N0;
             }
-            else if (t1 > 0)
+            else if (t1 > epsilon)
             {
                 intersection.t = t1;
                 intersection.N = N1;
@@ -326,6 +326,7 @@ std::optional<Intersection> BvhShape::intersect(const bvh::Ray<float>& bvhray) c
         intersection.object = shape;
     }
 
+    if (intersection.t == 0) return std::nullopt;
     if (intersection.t < bvhray.tmin || intersection.t > bvhray.tmax) return std::nullopt;
 
     return intersection;

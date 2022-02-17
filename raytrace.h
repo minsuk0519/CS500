@@ -9,6 +9,8 @@
 const float PI = 3.14159f;
 const float Radians = PI/180.0f;    // Convert degrees to radians
 
+constexpr float epsilon = 0.0001f;
+
 ////////////////////////////////////////////////////////////////////////
 // Material: encapsulates a BRDF and communication with a shader.
 ////////////////////////////////////////////////////////////////////////
@@ -57,18 +59,18 @@ struct MeshData
     Material *mat;
 };
 
+class Shape;
+
 ////////////////////////////////////////////////////////////////////////
 // Light: encapsulates a light and communiction with a shader.
 ////////////////////////////////////////////////////////////////////////
 class Light: public Material
 {
 public:
-
     Light(const vec3 e) : Material() { Kd = e; }
     virtual bool isLight() { return true; }
-    //virtual void apply(const unsigned int program);
 
-    vec3 center;
+    Shape* shape = nullptr;
 };
 
 ////////////////////////////////////////////////////////////////////////
@@ -188,4 +190,19 @@ public:
     // The main program will call the TraceImage method to generate
     // and return the image.  This is the Ray Tracer!
     void TraceImage(Color* image, const int pass);
+
+    Color TracePath(const Ray& ray, AccelerationBvh& bvh);
+
+    Intersection SampleLight();
+    float PdfLight(Intersection Q);
 };
+
+float GeometryFactor(Intersection A, Intersection B);
+vec3 SampleLobe(vec3 A, float c, float phi);
+Intersection SampleSphere(vec3 C, float R, Shape* obj);
+
+vec3 EvalRadiance(Intersection Q);
+
+vec3 SampleBrdf(vec3 N);
+float PdfBrdf(vec3 N, vec3 wi);
+vec3 EvalScattering(vec3 N, vec3 wi, vec3 Kd);

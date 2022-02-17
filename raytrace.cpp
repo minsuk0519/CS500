@@ -25,21 +25,18 @@
 std::random_device device;
 std::mt19937_64 RNGen(device());
 std::uniform_real_distribution<> myrandom(0.0, 1.0);
+std::uniform_int_distribution<> myrandom_INT(0, 1);
+
 // Call myrandom(RNGen) to get a uniformly distributed random number in [0,1].
 
-//#define TIME_MEASURE
+#define TIME_MEASURE
 #ifdef TIME_MEASURE
     #include <chrono>
 #endif
 
-#define BASECOLORDISPLAY 1
-#define TVALUEDISPLAY 2
-#define NORMALDISPLAY 3
-#define LIGHTDISPLAY 4
-#define POSITIONDISPLAY 5
-#define TEXDISPLAY 6
+constexpr float RussianRoulette = 0.8f;
 
-constexpr int DISPLAY_MODE = LIGHTDISPLAY;
+constexpr int PATH_PASS = 16;
 
 Scene::Scene() {}
 
@@ -143,7 +140,7 @@ void Scene::Command(const std::vector<std::string>& strings,
         if (currentMat->isLight())
         {
             Light* light = dynamic_cast<Light*>(currentMat);
-            light->center = vec3(f[1], f[2], f[3]);
+            light->shape = shape;
             lights.push_back(light);
         }
     }
@@ -156,7 +153,7 @@ void Scene::Command(const std::vector<std::string>& strings,
         if (currentMat->isLight())
         {
             Light* light = dynamic_cast<Light*>(currentMat);
-            light->center = vec3(f[1], f[2], f[3]) + 0.5f * vec3(f[4], f[5], f[6]);
+            light->shape = shape;
             lights.push_back(light);
         }
     }
@@ -168,7 +165,7 @@ void Scene::Command(const std::vector<std::string>& strings,
         if (currentMat->isLight())
         {
             Light* light = dynamic_cast<Light*>(currentMat);
-            light->center = vec3(f[1], f[2], f[3]) + 0.5f * vec3(f[4], f[5], f[6]);
+            light->shape = shape;
             lights.push_back(light);
         }
     }
@@ -205,66 +202,26 @@ void Scene::TraceImage(Color* image, const int pass)
     fprintf(stderr, "Trace Image start!\n");
 #endif // TIME_MEASURE
 
+    for (int pass = 0; pass < PATH_PASS; ++pass)
+    {
 #pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
-    for (int y=0;  y<height;  y++) {
-        fprintf(stderr, "Rendering %4d\r", y);
-        for (int x=0;  x<width;  x++) {
-            float dx = 2 * (x + 0.5f) / width - 1;
-            float dy = 2 * (y + 0.5f) / height - 1;
-            Ray ray(eye, normalize(dx * X + dy * Y - Z));
+        for (int y = 0; y < height; y++) {
+            fprintf(stderr, "Rendering %4d\r", y);
+            for (int x = 0; x < width; x++) {
+                float dx = 2 * (x + myrandom(RNGen)) / width - 1;
+                float dy = 2 * (y + myrandom(RNGen)) / height - 1;
+                Ray ray(eye, normalize(dx * X + dy * Y - Z));
 
-            Intersection front, current;
-            front.t = INFINITY;
-
-            front = bvh.intersect(ray);
-            
-            Color color = Color(0, 0, 0);
-
-            if (front.t != INFINITY && front.t > 0)
-            {
-                if (DISPLAY_MODE == BASECOLORDISPLAY)
-                {
-                    color = front.object->mat->Kd;
-                }
-                else if (DISPLAY_MODE == TVALUEDISPLAY)
-                {
-                    color = Color((front.t - 5) / 4.0f);
-                }
-                else if (DISPLAY_MODE == NORMALDISPLAY)
-                {
-                    color = front.N;
-
-                    //prevent the underflow for hdr format image
-                    color.x = std::max(color.x, 0.0f);
-                    color.y = std::max(color.y, 0.0f);
-                    color.z = std::max(color.z, 0.0f);
-                }
-                else if (DISPLAY_MODE == POSITIONDISPLAY)
-                {
-                    color = (front.P + vec3(0, 0, 1)) / 2.0f;
-
-                    //prevent the underflow for hdr format image
-                    color.x = std::max(color.x, 0.0f);
-                    color.y = std::max(color.y, 0.0f);
-                    color.z = std::max(color.z, 0.0f);
-                }
-                else if (DISPLAY_MODE == LIGHTDISPLAY)
-                {
-                    for (auto light : lights)
-                    {
-                        vec3 L = light->center;
-                        vec3 P = front.P;
-                        float diffuse = std::max(std::min(dot(front.N, -normalize(P - L)), 1.0f), 0.0f);
-                        color += front.object->mat->Kd * diffuse;
-                    }
-                }
-                else if (DISPLAY_MODE == TEXDISPLAY)
-                {
-                    color = vec3(front.UV.x, front.UV.y, 0.0);
-                }
+                Color c =TracePath(ray, bvh);
+                image[y * width + x] += c;
             }
+        }
+    }
 
-            image[y*width + x] = color;
+#pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            image[y * width + x] /= (float)PATH_PASS;
         }
     }
     fprintf(stderr, "\n");
@@ -276,6 +233,68 @@ void Scene::TraceImage(Color* image, const int pass)
     fprintf(stderr, "Trace Image time passed : %4f\n", result);
 #endif // TIME_MEASURE
 
+}
+
+Color Scene::TracePath(const Ray& ray, AccelerationBvh& bvh)
+{
+    vec3 C = vec3(0, 0, 0);
+    vec3 W = vec3(1, 1, 1);
+
+    Intersection P;
+
+    P = bvh.intersect(ray);
+    vec3 N = P.N;
+
+    if (P.t == INFINITY || P.t <= 0) return C;
+    if (P.object->mat->isLight()) return EvalRadiance(P);
+
+    while (myrandom(RNGen) < RussianRoulette)
+    {
+        {
+            Intersection L = SampleLight();
+            float p = PdfLight(L) / GeometryFactor(P, L);
+            vec3 wi = normalize(L.P - P.P);
+            Ray shadowray = Ray(P.P, wi);
+            Intersection I = bvh.intersect(shadowray);
+            if (p > 0 && I.t != INFINITY && I.t > 0)
+            {
+                if (I.P == L.P)
+                {
+                    vec3 f = EvalScattering(N, wi, I.object->mat->Kd);
+                    C += 0.5f * W * (f / p) * EvalRadiance(L);
+                }
+            }
+        }
+
+        {
+            N = P.N;
+
+            vec3 wi = SampleBrdf(N);
+
+            Ray newray(P.P, wi);
+
+            Intersection Q = bvh.intersect(newray);
+
+            if (Q.t == INFINITY || Q.t <= 0) return C;
+
+            vec3 f = EvalScattering(N, wi, P.object->mat->Kd);
+            float p = PdfBrdf(N, wi) * RussianRoulette;
+
+            if (p < 0.000001f) break;
+
+            W *= f / p;
+
+            if (Q.object->mat->isLight())
+            {
+                C += 0.5f * W * EvalRadiance(Q);
+                break;
+            }
+
+            P = Q;
+        }
+    }
+
+    return C;
 }
 
 SimpleBox Sphere::boundingbox()
@@ -315,4 +334,86 @@ SimpleBox Triangle::boundingbox()
     bounding_box.extend(V2);
 
     return bounding_box;
+}
+
+float GeometryFactor(Intersection A, Intersection B)
+{
+    vec3 D = A.P - B.P;
+    float DdotD = dot(D, D);
+    return abs((dot(A.N, D) * dot(B.N, D)) / (DdotD * DdotD));
+}
+
+vec3 SampleLobe(vec3 A, float c, float phi)
+{
+    float s = sqrt(1 - c * c);
+
+    vec3 K = vec3(s * cos(phi), s * sin(phi), c);
+
+    if (abs(A.z - 1) < 0.001) return K;
+    if (abs(A.z + 1) < 0.001) return vec3(K.x, -K.y, -K.z);
+
+    vec3 B = normalize(vec3(-A.y, A.x, 0));
+    vec3 C = cross(A, B);
+
+    return K.x * B + K.y * C + K.z * A;
+}
+
+Intersection SampleSphere(vec3 C, float R, Shape* obj)
+{
+    float x1 = myrandom(RNGen);
+    float x2 = myrandom(RNGen);
+
+    float z = 2 * x1 - 1;
+    float r = sqrt(1 - z * z);
+
+    float a = 2 * PI * x2;
+
+    Intersection result;
+
+    result.N = vec3(r * cos(a), r * sin(a), z);
+    result.P = C + R * result.N;
+    result.object = obj;
+
+    return result;
+}
+
+Intersection Scene::SampleLight()
+{
+    //only for sphere light
+    unsigned int numberoflights = lights.size();
+    int N = myrandom_INT(RNGen) * (numberoflights - 1);
+    Light* light = lights[N];
+    if (light->shape->type != SHAPE_SPHERE) fprintf(stderr, "Error! light is not sphere!\n");
+    Sphere* lightsphere = dynamic_cast<Sphere*>(light->shape);
+    return SampleSphere(lightsphere->C, lightsphere->r, lightsphere);
+}
+
+float Scene::PdfLight(Intersection Q)
+{
+    float r = dynamic_cast<Sphere*>(Q.object)->r;
+    float areaoflight = r * r * 4.0 * PI;
+    return 1.0f / (lights.size() * areaoflight);
+}
+
+vec3 SampleBrdf(vec3 N)
+{
+    float c = myrandom(RNGen);
+    float phi = myrandom(RNGen);
+
+    return SampleLobe(N, sqrt(c), 2 * PI * phi);
+}
+
+vec3 EvalRadiance(Intersection Q)
+{
+    return Q.object->mat->Kd;
+}
+
+float PdfBrdf(vec3 N, vec3 wi)
+{
+    return abs(dot(N, wi)) / PI;
+}
+
+vec3 EvalScattering(vec3 N, vec3 wi, vec3 Kd)
+{
+    return abs(dot(N, wi)) * Kd / PI;
 }
