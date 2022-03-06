@@ -36,7 +36,16 @@ std::uniform_int_distribution<> myrandom_INT(0, 1);
 
 constexpr float RussianRoulette = 0.8f;
 
-constexpr int PATH_PASS = 16;
+constexpr int PATH_PASS = 8;
+
+enum BRDF_TYPE
+{
+    BRDF_PHONG,
+    BRDF_BECKMAN,
+    BRDF_GGX,
+};
+
+BRDF_TYPE BRDFTYPE = BRDF_PHONG;
 
 Scene::Scene() {}
 
@@ -240,14 +249,13 @@ Color Scene::TracePath(const Ray& ray, AccelerationBvh& bvh)
     vec3 C = vec3(0, 0, 0);
     vec3 W = vec3(1, 1, 1);
 
-    Intersection P;
-
-    P = bvh.intersect(ray);
+    Intersection P = bvh.intersect(ray);
     vec3 N = P.N;
 
     if (P.t == INFINITY || P.t <= 0) return C;
     if (P.object->mat->isLight()) return EvalRadiance(P);
 
+    vec3 w0 = -ray.d;
     while (myrandom(RNGen) < RussianRoulette)
     {
         {
@@ -260,25 +268,23 @@ Color Scene::TracePath(const Ray& ray, AccelerationBvh& bvh)
             {
                 if (I.P == L.P)
                 {
-                    vec3 f = EvalScattering(N, wi, I.object->mat->Kd);
+                    vec3 f = EvalScattering(w0, N, wi, I.object->mat->Kd);
                     C += 0.5f * W * (f / p) * EvalRadiance(L);
                 }
             }
         }
 
         {
-            N = P.N;
-
-            vec3 wi = SampleBrdf(N);
+            vec3 wi = SampleBrdf(w0, N);
 
             Ray newray(P.P, wi);
 
             Intersection Q = bvh.intersect(newray);
 
-            if (Q.t == INFINITY || Q.t <= 0) return C;
+            if (Q.t == INFINITY || Q.t <= 0) break;
 
-            vec3 f = EvalScattering(N, wi, P.object->mat->Kd);
-            float p = PdfBrdf(N, wi) * RussianRoulette;
+            vec3 f = EvalScattering(w0, N, wi, P.object->mat->Kd);
+            float p = PdfBrdf(w0, N, wi) * RussianRoulette;
 
             if (p < 0.000001f) break;
 
@@ -286,11 +292,13 @@ Color Scene::TracePath(const Ray& ray, AccelerationBvh& bvh)
 
             if (Q.object->mat->isLight())
             {
-                C += 0.5f * W * EvalRadiance(Q);
+                C += W * EvalRadiance(Q);
                 break;
             }
 
             P = Q;
+            N = P.N;
+            w0 = -wi;
         }
     }
 
@@ -395,12 +403,33 @@ float Scene::PdfLight(Intersection Q)
     return 1.0f / (lights.size() * areaoflight);
 }
 
-vec3 SampleBrdf(vec3 N)
+vec3 SampleBrdf(vec3 w0, vec3 N)
 {
-    float c = myrandom(RNGen);
-    float phi = myrandom(RNGen);
+    float random = myrandom(RNGen);
 
-    return SampleLobe(N, sqrt(c), 2 * PI * phi);
+    //TODO : need to be updated
+    float kd = 0;
+    float ks = 0;
+    float alpha = 0;
+
+    float pd = kd / (kd + ks);
+
+    float xi1 = myrandom(RNGen);
+    float xi2 = myrandom(RNGen);
+
+    //diffuse
+    if (random > pd)
+    {
+        return SampleLobe(N, sqrt(xi1), 2 * PI * xi2);
+    }
+    //reflective
+    else
+    {
+        float costheta = pow(xi1, 1 / (alpha + 1));
+        vec3 m = SampleLobe(N, costheta, 2 * PI * xi2);
+
+        return 2 * dot(w0, m) * m - w0;
+    }
 }
 
 vec3 EvalRadiance(Intersection Q)
@@ -408,12 +437,88 @@ vec3 EvalRadiance(Intersection Q)
     return Q.object->mat->Kd;
 }
 
-float PdfBrdf(vec3 N, vec3 wi)
+float PdfBrdf(vec3 w0, vec3 N, vec3 wi)
 {
-    return abs(dot(N, wi)) / PI;
+    //TODO : need to be updated
+    float kd = 0;
+    float ks = 0;
+    float alpha = 0;
+
+    float pd = kd / (kd + ks);
+    float pr = ks / (kd + ks);
+
+    float Pd = std::abs(dot(wi, N)) / PI;
+    vec3 m = glm::normalize(w0 + wi);
+    float Pr = distribution(m, N) * std::abs(dot(m, N)) / (4 * std::abs(dot(wi, m)));
+
+    return pd * Pd + pr * Pr;
 }
 
-vec3 EvalScattering(vec3 N, vec3 wi, vec3 Kd)
+vec3 EvalScattering(vec3 w0, vec3 N, vec3 wi, vec3 Kd)
 {
-    return abs(dot(N, wi)) * Kd / PI;
+    vec3 Ed = Kd / PI;
+    vec3 m = glm::normalize(w0 + wi);
+    vec3 Er = glm::vec3(distribution(m, N) * geometry_smith(wi, w0, m) * fresenl(dot(wi, m)) / (4 * std::abs(dot(wi, N) * dot(w0, N))));
+
+    return abs(dot(N, wi)) * (Ed + Er);
+}
+
+float fresenl(float d)
+{
+    //TODO update this
+    float refractive_index = 1.0;
+
+    float ks = (refractive_index - 1.0f) / (refractive_index + 1.0f);
+
+    return ks + (1 - ks) * (1 - std::pow(d, 5));
+}
+
+float distribution(vec3 m, vec3 N)
+{
+    if (BRDFTYPE == BRDF_PHONG)
+    {
+        //TODO: update this
+        float alpha = 1.0f;
+
+        float mDotN = dot(m, N);
+        if (mDotN < 0) return 0.0f;
+
+        return std::pow(mDotN, alpha) * (alpha + 2) / (2 * PI);
+    }
+
+    return 0.0f;
+}
+
+float geometry_smith(vec3 wi, vec3 w0, vec3 m)
+{
+    return geometry(wi, m) * geometry(w0, m);
+}
+
+float geometry(vec3 v, vec3 m)
+{
+    if (BRDFTYPE == BRDF_PHONG)
+    {
+        //TODO update this
+        vec3 N;
+        float alpha = 1.0f;
+
+        float vDotN = dot(v, N);
+
+        if (vDotN > 1.0) return 1.0;
+
+        if (dot(v, m) / vDotN < 0) return 0.0f;
+
+        float tantheta = sqrt(1.0 - vDotN * vDotN) / vDotN;
+
+        if (tantheta == 0.0f) return 1.0f;
+
+        float a = std::sqrt((alpha / 2) + 1) / tantheta;
+
+        if (a >= 1.6f) return 1;
+
+        float asquare = a * a;
+
+        return (3.535f * a + 2.181 * asquare) / (1.0 + 2.276 * a + 2.577 * asquare);
+    }
+
 }

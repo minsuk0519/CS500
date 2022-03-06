@@ -20,6 +20,7 @@ class Material
     vec3 Kd, Ks;
     float alpha;
     unsigned int texid;
+    float refractive_index = 1.0f;
 
     virtual bool isLight() { return false; }
 
@@ -203,6 +204,11 @@ Intersection SampleSphere(vec3 C, float R, Shape* obj);
 
 vec3 EvalRadiance(Intersection Q);
 
-vec3 SampleBrdf(vec3 N);
-float PdfBrdf(vec3 N, vec3 wi);
-vec3 EvalScattering(vec3 N, vec3 wi, vec3 Kd);
+vec3 SampleBrdf(vec3 w0, vec3 N);
+float PdfBrdf(vec3 w0, vec3 N, vec3 wi);
+vec3 EvalScattering(vec3 w0, vec3 N, vec3 wi, vec3 Kd);
+
+float fresenl(float d);
+float distribution(vec3 m, vec3 N);
+float geometry_smith(vec3 wi, vec3 w0, vec3 m);
+float geometry(vec3 v, vec3 m);
