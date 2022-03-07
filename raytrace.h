@@ -8,6 +8,7 @@
 
 const float PI = 3.14159f;
 const float Radians = PI/180.0f;    // Convert degrees to radians
+const float E = 2.71828f;    // Convert degrees to radians
 
 constexpr float epsilon = 0.0001f;
 
@@ -204,11 +205,11 @@ Intersection SampleSphere(vec3 C, float R, Shape* obj);
 
 vec3 EvalRadiance(Intersection Q);
 
-vec3 SampleBrdf(vec3 w0, vec3 N);
-float PdfBrdf(vec3 w0, vec3 N, vec3 wi);
-vec3 EvalScattering(vec3 w0, vec3 N, vec3 wi, vec3 Kd);
+vec3 SampleBrdf(vec3 w0, vec3 N, Material* mat);
+float PdfBrdf(vec3 w0, vec3 N, vec3 wi, Material* mat);
+vec3 EvalScattering(vec3 w0, vec3 N, vec3 wi, Material* mat);
 
-float fresenl(float d);
-float distribution(vec3 m, vec3 N);
-float geometry_smith(vec3 wi, vec3 w0, vec3 m);
-float geometry(vec3 v, vec3 m);
+vec3 fresenl(float d, vec3 ks);
+float distribution(vec3 m, vec3 N, float alpha);
+float geometry_smith(vec3 wi, vec3 w0, vec3 m, vec3 N, float alpha);
+float geometry(float vDotm, float vDotN, float alpha);

@@ -36,7 +36,7 @@ std::uniform_int_distribution<> myrandom_INT(0, 1);
 
 constexpr float RussianRoulette = 0.8f;
 
-constexpr int PATH_PASS = 8;
+constexpr int PATH_PASS = 64;
 
 enum BRDF_TYPE
 {
@@ -45,7 +45,7 @@ enum BRDF_TYPE
     BRDF_GGX,
 };
 
-BRDF_TYPE BRDFTYPE = BRDF_PHONG;
+BRDF_TYPE BRDFTYPE = BRDF_GGX;
 
 Scene::Scene() {}
 
@@ -221,10 +221,16 @@ void Scene::TraceImage(Color* image, const int pass)
                 float dy = 2 * (y + myrandom(RNGen)) / height - 1;
                 Ray ray(eye, normalize(dx * X + dy * Y - Z));
 
-                Color c =TracePath(ray, bvh);
-                image[y * width + x] += c;
+                Color c = TracePath(ray, bvh);
+
+                if (!isnan(c.x) && !isnan(c.y) && !isnan(c.z) &&
+                    !isinf(c.x) && !isinf(c.y) && !isinf(c.z))
+                {
+                    image[y * width + x] += c;
+                }
             }
         }
+
     }
 
 #pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
@@ -256,7 +262,7 @@ Color Scene::TracePath(const Ray& ray, AccelerationBvh& bvh)
     if (P.object->mat->isLight()) return EvalRadiance(P);
 
     vec3 w0 = -ray.d;
-    while (myrandom(RNGen) < RussianRoulette)
+    while (myrandom(RNGen) <= RussianRoulette)
     {
         {
             Intersection L = SampleLight();
@@ -266,16 +272,17 @@ Color Scene::TracePath(const Ray& ray, AccelerationBvh& bvh)
             Intersection I = bvh.intersect(shadowray);
             if (p > 0 && I.t != INFINITY && I.t > 0)
             {
-                if (I.P == L.P)
+                //if (I.P == L.P && I.object == L.object)
+                if (glm::length(I.P - L.P) < 0.000001f && I.object == L.object)
                 {
-                    vec3 f = EvalScattering(w0, N, wi, I.object->mat->Kd);
-                    C += 0.5f * W * (f / p) * EvalRadiance(L);
+                    vec3 f = EvalScattering(w0, N, wi, P.object->mat);
+                    C += W * (f / p) * EvalRadiance(L);
                 }
             }
         }
 
         {
-            vec3 wi = SampleBrdf(w0, N);
+            vec3 wi = SampleBrdf(w0, N, P.object->mat);
 
             Ray newray(P.P, wi);
 
@@ -283,8 +290,8 @@ Color Scene::TracePath(const Ray& ray, AccelerationBvh& bvh)
 
             if (Q.t == INFINITY || Q.t <= 0) break;
 
-            vec3 f = EvalScattering(w0, N, wi, P.object->mat->Kd);
-            float p = PdfBrdf(w0, N, wi) * RussianRoulette;
+            vec3 f = EvalScattering(w0, N, wi, P.object->mat);
+            float p = PdfBrdf(w0, N, wi, P.object->mat) * RussianRoulette;
 
             if (p < 0.000001f) break;
 
@@ -348,7 +355,10 @@ float GeometryFactor(Intersection A, Intersection B)
 {
     vec3 D = A.P - B.P;
     float DdotD = dot(D, D);
-    return abs((dot(A.N, D) * dot(B.N, D)) / (DdotD * DdotD));
+    float ANdotD = dot(A.N, D);
+    float BNdotD = dot(B.N, D);
+
+    return abs(ANdotD * BNdotD / (DdotD * DdotD));
 }
 
 vec3 SampleLobe(vec3 A, float c, float phi)
@@ -403,14 +413,13 @@ float Scene::PdfLight(Intersection Q)
     return 1.0f / (lights.size() * areaoflight);
 }
 
-vec3 SampleBrdf(vec3 w0, vec3 N)
+vec3 SampleBrdf(vec3 w0, vec3 N, Material* mat)
 {
     float random = myrandom(RNGen);
 
-    //TODO : need to be updated
-    float kd = 0;
-    float ks = 0;
-    float alpha = 0;
+    float kd = glm::length(mat->Kd);
+    float ks = glm::length(mat->Ks);
+    float alpha = mat->alpha;
 
     float pd = kd / (kd + ks);
 
@@ -418,14 +427,29 @@ vec3 SampleBrdf(vec3 w0, vec3 N)
     float xi2 = myrandom(RNGen);
 
     //diffuse
-    if (random > pd)
+    if (random < pd)
     {
         return SampleLobe(N, sqrt(xi1), 2 * PI * xi2);
     }
     //reflective
     else
     {
-        float costheta = pow(xi1, 1 / (alpha + 1));
+        float costheta;
+        if (BRDFTYPE == BRDF_PHONG)
+        {
+            costheta = pow(xi1, 1 / (alpha + 1));
+        }
+        else if (BRDFTYPE == BRDF_GGX)
+        {
+            float alphag = sqrt(2.0f / (alpha + 2));
+            costheta = cos(atan(alphag * sqrt(xi1) / (sqrt(1 - xi1))));
+        }
+        else
+        {
+            float alphab = sqrt(2.0f / (alpha + 2));
+            costheta = cos(atan(sqrt(-alphab * alphab * log10(1 - xi1))));
+        }
+
         vec3 m = SampleLobe(N, costheta, 2 * PI * xi2);
 
         return 2 * dot(w0, m) * m - w0;
@@ -437,81 +461,94 @@ vec3 EvalRadiance(Intersection Q)
     return Q.object->mat->Kd;
 }
 
-float PdfBrdf(vec3 w0, vec3 N, vec3 wi)
+float PdfBrdf(vec3 w0, vec3 N, vec3 wi, Material* mat)
 {
-    //TODO : need to be updated
-    float kd = 0;
-    float ks = 0;
-    float alpha = 0;
+    float kd = glm::length(mat->Kd);
+    float ks = glm::length(mat->Ks);
+    float alpha = mat->alpha;
 
     float pd = kd / (kd + ks);
     float pr = ks / (kd + ks);
 
     float Pd = std::abs(dot(wi, N)) / PI;
     vec3 m = glm::normalize(w0 + wi);
-    float Pr = distribution(m, N) * std::abs(dot(m, N)) / (4 * std::abs(dot(wi, m)));
+    float Pr = distribution(m, N, alpha) * std::abs(dot(m, N)) / (4 * std::abs(dot(wi, m)));
 
     return pd * Pd + pr * Pr;
 }
 
-vec3 EvalScattering(vec3 w0, vec3 N, vec3 wi, vec3 Kd)
+vec3 EvalScattering(vec3 w0, vec3 N, vec3 wi, Material* mat)
 {
-    vec3 Ed = Kd / PI;
+    vec3 Ed = mat->Kd / PI;
     vec3 m = glm::normalize(w0 + wi);
-    vec3 Er = glm::vec3(distribution(m, N) * geometry_smith(wi, w0, m) * fresenl(dot(wi, m)) / (4 * std::abs(dot(wi, N) * dot(w0, N))));
+
+    vec3 ks = mat->Ks;// (mat->refractive_index - 1.0f) / (mat->refractive_index + 1.0f);
+
+    float D = distribution(m, N, mat->alpha);
+    vec3 F = fresenl(std::abs(dot(wi, m)), ks);
+    float G = geometry_smith(wi, w0, m, N, mat->alpha);
+
+    vec3 Er = D * G * F / (4 * std::abs(dot(wi, N) * dot(w0, N)));
 
     return abs(dot(N, wi)) * (Ed + Er);
 }
 
-float fresenl(float d)
+vec3 fresenl(float d, vec3 ks)
 {
-    //TODO update this
-    float refractive_index = 1.0;
-
-    float ks = (refractive_index - 1.0f) / (refractive_index + 1.0f);
-
-    return ks + (1 - ks) * (1 - std::pow(d, 5));
+    return ks + (vec3(1, 1, 1) - ks) * static_cast<float>(std::pow(1 - d, 5));
 }
 
-float distribution(vec3 m, vec3 N)
+float distribution(vec3 m, vec3 N, float alpha)
 {
+    float mDotN = dot(m, N);
+    if (mDotN <= 0) return 0.0f;
+
     if (BRDFTYPE == BRDF_PHONG)
     {
-        //TODO: update this
-        float alpha = 1.0f;
-
-        float mDotN = dot(m, N);
-        if (mDotN < 0) return 0.0f;
-
         return std::pow(mDotN, alpha) * (alpha + 2) / (2 * PI);
+    }
+    else if (BRDFTYPE == BRDF_GGX)
+    {
+        float alphag = sqrt(2.0f / (alpha + 2));
+        float alphagsqure = alphag * alphag;
+        float tantheta = sqrt(1.0 - mDotN * mDotN) / mDotN;
+
+        return alphagsqure / (PI * pow((alphagsqure + tantheta * tantheta), 2) * pow(mDotN, 4));
+    }
+    else
+    {
+        float tantheta = sqrt(1.0 - mDotN * mDotN) / mDotN;
+        float alphab = sqrt(2.0f / (alpha + 2));
+        float alphabsqure = alphab * alphab;
+
+        return (1 / (PI * alphabsqure * pow(mDotN, 4)))* pow(E, -(tantheta * tantheta) / alphabsqure);
     }
 
     return 0.0f;
 }
 
-float geometry_smith(vec3 wi, vec3 w0, vec3 m)
+float geometry_smith(vec3 wi, vec3 w0, vec3 m, vec3 N, float alpha)
 {
-    return geometry(wi, m) * geometry(w0, m);
+    float wiDotm = dot(wi, m);
+    float wiDotN = dot(wi, N);
+    float w0Dotm = dot(w0, m);
+    float w0DotN = dot(w0, N);
+
+    return geometry(wiDotm, wiDotN, alpha) * geometry(w0Dotm, w0DotN, alpha);
 }
 
-float geometry(vec3 v, vec3 m)
+float geometry(float vDotm, float vDotN, float alpha)
 {
+    if (vDotN > 1.0) return 1.0;
+
+    if (vDotm <= 0) return 0.0f;
+
+    float tantheta = sqrt(1.0 - vDotN * vDotN) / vDotN;
+
+    if (tantheta == 0.0f) return 1.0f;
+
     if (BRDFTYPE == BRDF_PHONG)
     {
-        //TODO update this
-        vec3 N;
-        float alpha = 1.0f;
-
-        float vDotN = dot(v, N);
-
-        if (vDotN > 1.0) return 1.0;
-
-        if (dot(v, m) / vDotN < 0) return 0.0f;
-
-        float tantheta = sqrt(1.0 - vDotN * vDotN) / vDotN;
-
-        if (tantheta == 0.0f) return 1.0f;
-
         float a = std::sqrt((alpha / 2) + 1) / tantheta;
 
         if (a >= 1.6f) return 1;
@@ -520,5 +557,21 @@ float geometry(vec3 v, vec3 m)
 
         return (3.535f * a + 2.181 * asquare) / (1.0 + 2.276 * a + 2.577 * asquare);
     }
+    else if (BRDFTYPE == BRDF_GGX)
+    {
+        float alphag = sqrt(2.0f / (alpha + 2));
 
+        return 2 / (1 + sqrt(1 + alphag * alphag * tantheta * tantheta));
+    }
+    else
+    {
+        float alphab = sqrt(2.0f / (alpha + 2));
+        float a = 1 / (alphab * tantheta);
+
+        if (a >= 1.6f) return 1;
+
+        float asquare = a * a;
+
+        return (3.535f * a + 2.181 * asquare) / (1.0 + 2.276 * a + 2.577 * asquare);
+    }
 }
