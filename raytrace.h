@@ -6,11 +6,10 @@
 
 #include "acceleration.h"
 
-const float PI = 3.14159f;
+const float PI = glm::pi<float>();
 const float Radians = PI/180.0f;    // Convert degrees to radians
-const float E = 2.71828f;    // Convert degrees to radians
 
-constexpr float epsilon = 0.0001f;
+constexpr float epsilon = 0.01f;
 
 ////////////////////////////////////////////////////////////////////////
 // Material: encapsulates a BRDF and communication with a shader.
@@ -18,15 +17,17 @@ constexpr float epsilon = 0.0001f;
 class Material
 {
  public:
-    vec3 Kd, Ks;
+    vec3 Kd, Ks, Kt;
+    float ior;
     float alpha;
     unsigned int texid;
-    float refractive_index = 1.0f;
 
     virtual bool isLight() { return false; }
 
     Material()  : Kd(vec3(1.0, 0.5, 0.0)), Ks(vec3(1,1,1)), alpha(1.0), texid(0) {}
-    Material(const vec3 d, const vec3 s, const float a) 
+    Material(const vec3 d, const vec3 s, const float a, const vec3 t, float n) 
+        : Kd(d), Ks(s), alpha(a), texid(0), Kt(t), ior(n) {}
+    Material(const vec3 d, const vec3 s, const float a)
         : Kd(d), Ks(s), alpha(a), texid(0) {}
     Material(Material& o) { Kd=o.Kd;  Ks=o.Ks;  alpha=o.alpha;  texid=o.texid; }
 
@@ -207,9 +208,10 @@ vec3 EvalRadiance(Intersection Q);
 
 vec3 SampleBrdf(vec3 w0, vec3 N, Material* mat);
 float PdfBrdf(vec3 w0, vec3 N, vec3 wi, Material* mat);
-vec3 EvalScattering(vec3 w0, vec3 N, vec3 wi, Material* mat);
+vec3 EvalScattering(vec3 w0, vec3 N, vec3 wi, float t, Material* mat);
 
 vec3 fresenl(float d, vec3 ks);
+float fresnel(float g, float c);
 float distribution(vec3 m, vec3 N, float alpha);
 float geometry_smith(vec3 wi, vec3 w0, vec3 m, vec3 N, float alpha);
 float geometry(float vDotm, float vDotN, float alpha);

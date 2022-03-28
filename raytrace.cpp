@@ -36,7 +36,7 @@ std::uniform_int_distribution<> myrandom_INT(0, 1);
 
 constexpr float RussianRoulette = 0.8f;
 
-constexpr int PATH_PASS = 64;
+constexpr int PATH_PASS = 512;
 
 enum BRDF_TYPE
 {
@@ -130,7 +130,7 @@ void Scene::Command(const std::vector<std::string>& strings,
         // First rgb is Diffuse reflection, second is specular reflection.
         // third is beer's law transmission followed by index of refraction.
         // Creates a Material instance to be picked up by successive shapes
-        currentMat = new Material(vec3(f[1], f[2], f[3]), vec3(f[4], f[5], f[6]), f[7]); 
+        currentMat = new Material(vec3(f[1], f[2], f[3]), vec3(f[4], f[5], f[6]), f[7], vec3(f[8], f[9], f[10]), f[11]); 
     }
     else if (c == "light") 
     {
@@ -211,11 +211,18 @@ void Scene::TraceImage(Color* image, const int pass)
     fprintf(stderr, "Trace Image start!\n");
 #endif // TIME_MEASURE
 
+#pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            image[y * width + x] = Color(0, 0, 0);
+        }
+    }
+
     for (int pass = 0; pass < PATH_PASS; ++pass)
     {
 #pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
         for (int y = 0; y < height; y++) {
-            fprintf(stderr, "Rendering %4d\r", y);
+            fprintf(stderr, "%d, Rendering %4d\r", pass, y);
             for (int x = 0; x < width; x++) {
                 float dx = 2 * (x + myrandom(RNGen)) / width - 1;
                 float dy = 2 * (y + myrandom(RNGen)) / height - 1;
@@ -226,6 +233,14 @@ void Scene::TraceImage(Color* image, const int pass)
                 if (!isnan(c.x) && !isnan(c.y) && !isnan(c.z) &&
                     !isinf(c.x) && !isinf(c.y) && !isinf(c.z))
                 {
+                    if (c.x < 0.0f) c.x = 0.0f;
+                    if (c.y < 0.0f) c.y = 0.0f;
+                    if (c.z < 0.0f) c.z = 0.0f;
+
+                    if (c.x > 1.0f) c.x = 1.0f;
+                    if (c.y > 1.0f) c.y = 1.0f;
+                    if (c.z > 1.0f) c.z = 1.0f;
+
                     image[y * width + x] += c;
                 }
             }
@@ -247,7 +262,6 @@ void Scene::TraceImage(Color* image, const int pass)
 
     fprintf(stderr, "Trace Image time passed : %4f\n", result);
 #endif // TIME_MEASURE
-
 }
 
 Color Scene::TracePath(const Ray& ray, AccelerationBvh& bvh)
@@ -261,28 +275,34 @@ Color Scene::TracePath(const Ray& ray, AccelerationBvh& bvh)
     if (P.t == INFINITY || P.t <= 0) return C;
     if (P.object->mat->isLight()) return EvalRadiance(P);
 
-    vec3 w0 = -ray.d;
+    vec3 wo = -ray.d;
+    vec3 wi;
+    float wmis;
     while (myrandom(RNGen) <= RussianRoulette)
     {
         {
             Intersection L = SampleLight();
             float p = PdfLight(L) / GeometryFactor(P, L);
-            vec3 wi = normalize(L.P - P.P);
+            wi = normalize(L.P - P.P);
+            float q = PdfBrdf(wo, N, wi, P.object->mat) * RussianRoulette;
+            float psquare = p * p;
+            wmis = psquare / (psquare + q * q);
             Ray shadowray = Ray(P.P, wi);
             Intersection I = bvh.intersect(shadowray);
-            if (p > 0 && I.t != INFINITY && I.t > 0)
+            if (p > 0 && I.t != INFINITY && I.t > epsilon)
             {
                 //if (I.P == L.P && I.object == L.object)
-                if (glm::length(I.P - L.P) < 0.000001f && I.object == L.object)
+                if (glm::length(I.P - L.P) < 0.0001f && I.object == L.object)
                 {
-                    vec3 f = EvalScattering(w0, N, wi, P.object->mat);
-                    C += W * (f / p) * EvalRadiance(L);
+                    vec3 f = EvalScattering(wo, N, wi, P.t, P.object->mat);
+
+                    C += W * wmis * (f / p) * EvalRadiance(L);
                 }
             }
         }
 
         {
-            vec3 wi = SampleBrdf(w0, N, P.object->mat);
+            wi = SampleBrdf(wo, N, P.object->mat);
 
             Ray newray(P.P, wi);
 
@@ -290,22 +310,25 @@ Color Scene::TracePath(const Ray& ray, AccelerationBvh& bvh)
 
             if (Q.t == INFINITY || Q.t <= 0) break;
 
-            vec3 f = EvalScattering(w0, N, wi, P.object->mat);
-            float p = PdfBrdf(w0, N, wi, P.object->mat) * RussianRoulette;
+            vec3 f = EvalScattering(wo, N, wi, P.t, P.object->mat);
+            float p = PdfBrdf(wo, N, wi, P.object->mat) * RussianRoulette;
 
-            if (p < 0.000001f) break;
+            if (p < epsilon) break;
 
             W *= f / p;
 
             if (Q.object->mat->isLight())
             {
-                C += W * EvalRadiance(Q);
+                float q = PdfLight(Q) / GeometryFactor(P, Q);
+                float psquare = p * p;
+                wmis = psquare / (psquare + q * q);
+                C += W * wmis * EvalRadiance(Q);
                 break;
             }
 
             P = Q;
             N = P.N;
-            w0 = -wi;
+            wo = -wi;
         }
     }
 
@@ -413,15 +436,17 @@ float Scene::PdfLight(Intersection Q)
     return 1.0f / (lights.size() * areaoflight);
 }
 
-vec3 SampleBrdf(vec3 w0, vec3 N, Material* mat)
+vec3 SampleBrdf(vec3 wo, vec3 N, Material* mat)
 {
     float random = myrandom(RNGen);
 
     float kd = glm::length(mat->Kd);
     float ks = glm::length(mat->Ks);
+    float kt = glm::length(mat->Kt);
     float alpha = mat->alpha;
 
-    float pd = kd / (kd + ks);
+    float pd = kd / (kd + ks + kt);
+    float pr = ks / (kd + ks + kt);
 
     float xi1 = myrandom(RNGen);
     float xi2 = myrandom(RNGen);
@@ -432,6 +457,28 @@ vec3 SampleBrdf(vec3 w0, vec3 N, Material* mat)
         return SampleLobe(N, sqrt(xi1), 2 * PI * xi2);
     }
     //reflective
+    else if(random < pd + pr)
+    {
+        float costheta;
+        if (BRDFTYPE == BRDF_PHONG)
+        {
+            costheta = pow(xi1, 1 / (alpha + 1));
+        }
+        else if (BRDFTYPE == BRDF_GGX)
+        {
+            float alphag = sqrt(2.0f / (alpha + 2));
+            costheta = cos(atan(alphag * sqrt(xi1) / (sqrt(1 - xi1))));
+        }
+        else
+        {
+            float alphab = sqrt(2.0f / (alpha + 2));
+            costheta = cos(atan(sqrt(-alphab * alphab * log10(1 - xi1))));
+        }
+
+        vec3 m = SampleLobe(N, costheta, 2 * PI * xi2);
+
+        return 2 * dot(wo, m) * m - wo;
+    }
     else
     {
         float costheta;
@@ -452,7 +499,27 @@ vec3 SampleBrdf(vec3 w0, vec3 N, Material* mat)
 
         vec3 m = SampleLobe(N, costheta, 2 * PI * xi2);
 
-        return 2 * dot(w0, m) * m - w0;
+        float n;
+
+        float wodotN = dot(wo, N);
+
+        if (wodotN > 0) n = 1.0 / mat->ior;
+        else n = mat->ior;
+
+        float wodotm = dot(wo, m);
+
+        float r = 1 - n * n * (1 - (wodotm * wodotm));
+
+        if (r < 0)
+        {
+            return 2 * wodotm * m - wo;
+        }
+        else
+        {
+            float sign = (wodotN >= 0) ? 1 : -1;
+
+            return (n * wodotm - sign * sqrt(r)) * m - n * wo;
+        }
     }
 }
 
@@ -461,41 +528,169 @@ vec3 EvalRadiance(Intersection Q)
     return Q.object->mat->Kd;
 }
 
-float PdfBrdf(vec3 w0, vec3 N, vec3 wi, Material* mat)
+float PdfBrdf(vec3 wo, vec3 N, vec3 wi, Material* mat)
 {
     float kd = glm::length(mat->Kd);
     float ks = glm::length(mat->Ks);
+    float kt = glm::length(mat->Kt);
     float alpha = mat->alpha;
 
-    float pd = kd / (kd + ks);
-    float pr = ks / (kd + ks);
+    float s = (kd + ks + kt);
+
+    float pd = kd / s;
+    float pr = ks / s;
+    float pt = kt / s;
 
     float Pd = std::abs(dot(wi, N)) / PI;
-    vec3 m = glm::normalize(w0 + wi);
+    vec3 m = glm::normalize(wo + wi);
     float Pr = distribution(m, N, alpha) * std::abs(dot(m, N)) / (4 * std::abs(dot(wi, m)));
 
-    return pd * Pd + pr * Pr;
+    float ni;
+    float no;
+
+    if (dot(wo, N) > 0)
+    {
+        ni = 1.0;
+        no = mat->ior;
+    }
+    else
+    {
+        ni = mat->ior;
+        no = 1.0;
+    }
+
+    float n = ni / no;
+
+    vec3 mt = -glm::normalize(no * wi + ni * wo);
+    float wodotmt = dot(wo, mt);
+    float r = 1 - n * n * (1 - wodotmt * wodotmt);
+
+    float Pt = Pr;
+
+    if (r < 0) Pt = Pr;
+    else
+    {
+        float widotmt = dot(wi, mt);
+        float denom = no * widotmt + ni * dot(wo, mt);
+        Pt = distribution(mt, N, alpha) * std::abs(dot(mt, N)) * no * no * std::abs(widotmt) / (denom * denom);
+    }
+
+    return pd * Pd + pr * Pr + pt * Pt;
 }
 
-vec3 EvalScattering(vec3 w0, vec3 N, vec3 wi, Material* mat)
+vec3 EvalScattering(vec3 wo, vec3 N, vec3 wi, float t, Material* mat)
 {
     vec3 Ed = mat->Kd / PI;
-    vec3 m = glm::normalize(w0 + wi);
+    vec3 m = glm::normalize(wo + wi);
 
-    vec3 ks = mat->Ks;// (mat->refractive_index - 1.0f) / (mat->refractive_index + 1.0f);
+    vec3 ks = mat->Ks;
 
     float D = distribution(m, N, mat->alpha);
     vec3 F = fresenl(std::abs(dot(wi, m)), ks);
-    float G = geometry_smith(wi, w0, m, N, mat->alpha);
 
-    vec3 Er = D * G * F / (4 * std::abs(dot(wi, N) * dot(w0, N)));
+    float ni;
+    float no;
 
-    return abs(dot(N, wi)) * (Ed + Er);
+    vec3 A;
+
+    if (dot(wo, N) > 0)
+    {
+        A = vec3(1, 1, 1);
+
+        ni = 1.0;
+        no = mat->ior;
+    }
+    else
+    {
+        A.x = exp(t * log(mat->Kt.x));
+        A.y = exp(t * log(mat->Kt.y));
+        A.z = exp(t * log(mat->Kt.z));
+
+        ni = mat->ior;
+        no = 1.0;
+    }
+
+    float c = std::abs(dot(wi, m));
+    float g = sqrt((no * no) / (ni * ni) - 1 + c * c);
+
+    //vec3 F = vec3(fresnel(g, c));
+    float G = geometry_smith(wi, wo, m, N, mat->alpha);
+
+    float widotN = std::abs(dot(wi, N));
+    float wodotN = std::abs(dot(wo, N));
+
+    vec3 Er;
+
+    if (widotN * wodotN < epsilon)
+    {
+        Er = vec3(0.0f);
+    }
+    else
+    {
+        Er = D * G * F / (4 * widotN * wodotN);
+    }
+
+    float n = ni / no;
+
+    vec3 mt = -glm::normalize(no * wi + ni * wo);
+    float wodotmt = dot(wo, mt);
+    float r = 1 - n * n * (1 - wodotmt * wodotmt);
+
+    vec3 Et;
+
+    if (r < 0) Et = Er * A;
+    else
+    {
+        D = distribution(mt, N, mat->alpha);
+        F = fresenl(std::abs(dot(wi, mt)), mat->Ks);
+
+        c = std::abs(dot(wi, mt));
+        g = sqrt((no * no) / (ni * ni) - 1 + c * c);
+
+        //F = vec3(fresnel(g, c));
+        G = geometry_smith(wi, wo, mt, N, mat->alpha);
+
+        float widotmt = dot(wi, mt);
+        float denom = (no * widotmt + ni * wodotmt);
+        denom = denom * denom;
+        
+        float widotN = std::abs(dot(wi, N));
+        float wodotN = std::abs(dot(wo, N));
+
+        if (widotN * wodotN < epsilon || denom < epsilon)
+        {
+            Et = vec3(0.0f);
+        }
+        else
+        {
+            F = vec3(1, 1, 1) - F;
+            F.x = std::abs(F.x);
+            F.y = std::abs(F.y);
+            F.z = std::abs(F.z);
+
+            Et = D * G * F / (widotN * wodotN);
+            Et *= A * (std::abs(widotmt) * std::abs(wodotmt) * no * no) / (denom);
+        }
+
+    }
+
+    return abs(dot(N, wi)) * (Ed + Er + Et);
 }
 
 vec3 fresenl(float d, vec3 ks)
 {
     return ks + (vec3(1, 1, 1) - ks) * static_cast<float>(std::pow(1 - d, 5));
+}
+
+float fresnel(float g, float c)
+{
+    float gplusc = g + c;
+    float gminusc = g - c;
+
+    float numerator = c * gplusc - 1.0f;
+    float denominator = c * gminusc + 1.0f;
+
+    return 0.5f * ((gminusc * gminusc) / (gplusc * gplusc)) * (1.0f + ((numerator * numerator) / (denominator * denominator)));
 }
 
 float distribution(vec3 m, vec3 N, float alpha)
@@ -521,27 +716,25 @@ float distribution(vec3 m, vec3 N, float alpha)
         float alphab = sqrt(2.0f / (alpha + 2));
         float alphabsqure = alphab * alphab;
 
-        return (1 / (PI * alphabsqure * pow(mDotN, 4)))* pow(E, -(tantheta * tantheta) / alphabsqure);
+        return (1 / (PI * alphabsqure * pow(mDotN, 4)))* exp(-(tantheta * tantheta) / alphabsqure);
     }
 
     return 0.0f;
 }
 
-float geometry_smith(vec3 wi, vec3 w0, vec3 m, vec3 N, float alpha)
+float geometry_smith(vec3 wi, vec3 wo, vec3 m, vec3 N, float alpha)
 {
     float wiDotm = dot(wi, m);
     float wiDotN = dot(wi, N);
-    float w0Dotm = dot(w0, m);
-    float w0DotN = dot(w0, N);
+    float woDotm = dot(wo, m);
+    float woDotN = dot(wo, N);
 
-    return geometry(wiDotm, wiDotN, alpha) * geometry(w0Dotm, w0DotN, alpha);
+    return geometry(wiDotm, wiDotN, alpha) * geometry(woDotm, woDotN, alpha);
 }
 
 float geometry(float vDotm, float vDotN, float alpha)
 {
     if (vDotN > 1.0) return 1.0;
-
-    if (vDotm <= 0) return 0.0f;
 
     float tantheta = sqrt(1.0 - vDotN * vDotN) / vDotN;
 
