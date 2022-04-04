@@ -220,7 +220,7 @@ void Scene::TraceImage(Color* image, const int pass)
 
     for (int pass = 0; pass < PATH_PASS; ++pass)
     {
-#pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
+//#pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
         for (int y = 0; y < height; y++) {
             fprintf(stderr, "%d, Rendering %4d\r", pass, y);
             for (int x = 0; x < width; x++) {
@@ -303,6 +303,8 @@ Color Scene::TracePath(const Ray& ray, AccelerationBvh& bvh)
 
         {
             wi = SampleBrdf(wo, N, P.object->mat);
+
+            float a = dot(wi, N);
 
             Ray newray(P.P, wi);
 
@@ -477,7 +479,7 @@ vec3 SampleBrdf(vec3 wo, vec3 N, Material* mat)
 
         vec3 m = SampleLobe(N, costheta, 2 * PI * xi2);
 
-        return 2 * dot(wo, m) * m - wo;
+        return 2 * abs(dot(wo, m)) * m - wo;
     }
     else
     {
@@ -504,7 +506,10 @@ vec3 SampleBrdf(vec3 wo, vec3 N, Material* mat)
         float wodotN = dot(wo, N);
 
         if (wodotN > 0) n = 1.0 / mat->ior;
-        else n = mat->ior;
+        else
+        {
+            n = mat->ior;
+        }
 
         float wodotm = dot(wo, m);
 
@@ -512,7 +517,7 @@ vec3 SampleBrdf(vec3 wo, vec3 N, Material* mat)
 
         if (r < 0)
         {
-            return 2 * wodotm * m - wo;
+            return 2 * abs(wodotm) * m - wo;
         }
         else
         {
