@@ -76,6 +76,23 @@ public:
     Shape* shape = nullptr;
 };
 
+class IBL : public Light
+{
+public:
+    IBL(float* c, int w, int h) : Light(vec3(0, 0, 0)), pixel(c), width(w), height(h) {}
+    void preprocess();
+    virtual bool isLight() { return true; }
+
+    float* pixel;
+    int width;
+    int height;
+
+    float* pBuffer;
+    float* pUDist;
+
+    Shape* shape = nullptr;
+};
+
 ////////////////////////////////////////////////////////////////////////
 // Shape
 ////////////////////////////////////////////////////////////////////////
@@ -215,3 +232,5 @@ float fresnel(float g, float c);
 float distribution(vec3 m, vec3 N, float alpha);
 float geometry_smith(vec3 wi, vec3 w0, vec3 m, vec3 N, float alpha);
 float geometry(float vDotm, float vDotN, float alpha);
+
+void ReadHdrImage(const std::string readName, int& width, int& height, float*& image);

@@ -188,8 +188,16 @@ void Scene::Command(const std::vector<std::string>& strings,
                           *scale(vec3(f[5],f[5],f[5]))
                           *toMat4(Orientation(6,strings,f));
         ReadAssimpFile(strings[1], modelTr);  }
-
-    
+    else if (c == "ibl")
+    {
+        float* pixels;
+        int width;
+        int height;
+        ReadHdrImage(strings[1], width, height, pixels);
+        IBL* ibl = new IBL(pixels, width, height);
+        ibl->preprocess();
+        currentMat = ibl;
+    }
     else {
         fprintf(stderr, "\n*********************************************\n");
         fprintf(stderr, "* Unknown command: %s\n", c.c_str());
@@ -220,7 +228,7 @@ void Scene::TraceImage(Color* image, const int pass)
 
     for (int pass = 0; pass < PATH_PASS; ++pass)
     {
-//#pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
+#pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
         for (int y = 0; y < height; y++) {
             fprintf(stderr, "%d, Rendering %4d\r", pass, y);
             for (int x = 0; x < width; x++) {
@@ -273,7 +281,10 @@ Color Scene::TracePath(const Ray& ray, AccelerationBvh& bvh)
     vec3 N = P.N;
 
     if (P.t == INFINITY || P.t <= 0) return C;
-    if (P.object->mat->isLight()) return EvalRadiance(P);
+    if (P.object->mat->isLight())
+    {
+        return EvalRadiance(P);
+    }
 
     vec3 wo = -ray.d;
     vec3 wi;
@@ -422,6 +433,30 @@ Intersection SampleSphere(vec3 C, float R, Shape* obj)
 
 Intersection Scene::SampleLight()
 {
+    Intersection B;
+
+    IBL* ibl = dynamic_cast<IBL*>(lights.at(0));
+
+    double u = myrandom(RNGen);
+    double v = myrandom(RNGen);
+    float maxUVal = ibl->pUDist[ibl->width - 1];
+    float* pUPos = std::lower_bound(ibl->pUDist, ibl->pUDist + ibl->width,
+        u * maxUVal);
+    int iu = pUPos - ibl->pUDist;
+    float* pVDist = &ibl->pBuffer[ibl->height * iu];
+    float* pVPos = std::lower_bound(pVDist, pVDist + ibl->height,
+        v * pVDist[ibl->height - 1]);
+    int iv = pVPos - pVDist;
+    double phi = 0 - 2 * PI * iu / ibl->width;
+    double theta = PI * iv / ibl->height;
+    B.N = vec3(sin(theta) * cos(phi),
+        sin(theta) * sin(phi),
+        cos(theta));
+    B.P = B.N * 1000.0f;
+    B.object = ibl->shape;
+    return B;
+
+
     //only for sphere light
     unsigned int numberoflights = lights.size();
     int N = myrandom_INT(RNGen) * (numberoflights - 1);
@@ -433,6 +468,27 @@ Intersection Scene::SampleLight()
 
 float Scene::PdfLight(Intersection Q)
 {
+    IBL* ibl = dynamic_cast<IBL*>(lights.at(0));
+
+    vec3 P = normalize(Q.P);
+    double fu = (0 - atan2(P[1], P[0])) / (PI * 2);
+    fu = fu - floor(fu);
+    int u = floor(ibl->width * fu);
+    int v = floor(ibl->height * acos(P[2]) / PI);
+    float angleFrac = PI / float(ibl->height);
+    float* pVDist = &ibl->pBuffer[ibl->height * u];
+    float pdfU = (u == 0) ? (ibl->pUDist[0]) : (ibl->pUDist[u] - ibl->pUDist[u - 1]);
+    pdfU /= ibl->pUDist[ibl->width - 1];
+    pdfU *= ibl->width / (PI * 2);
+    float pdfV = (v == 0) ? (pVDist[0]) : (pVDist[v] - pVDist[v - 1]);
+    pdfV /= pVDist[ibl->height - 1];
+    pdfV *= ibl->height / PI;
+    float theta = angleFrac * 0.5 + angleFrac * v;
+    float pdf = pdfU * pdfV * sin(theta) / (4.0 * PI * 1000.0f * 1000.0f);
+    //printf("(%f %f %f) %d %d %g\n", P[0], P[1], P[2], u, v, pdf);
+    return pdf;
+
+
     float r = dynamic_cast<Sphere*>(Q.object)->r;
     float areaoflight = r * r * 4.0 * PI;
     return 1.0f / (lights.size() * areaoflight);
@@ -530,6 +586,34 @@ vec3 SampleBrdf(vec3 wo, vec3 N, Material* mat)
 
 vec3 EvalRadiance(Intersection Q)
 {
+    if (IBL* tex = dynamic_cast<IBL*>(Q.object->mat); tex != nullptr)
+    {
+        vec3 P = glm::normalize(Q.P);
+        double u = (0 - atan2(P[1], P[0])) / (PI * 2);
+        u = u - floor(u);
+        double v = acos(P[2]) / PI;
+        int i0 = floor(u * tex->width);
+        int j0 = floor(v * tex->height);
+        double uw[2], vw[2];
+        uw[1] = u * tex->width - i0; 
+        uw[0] = 1.0 - uw[1];
+        vw[1] = v * tex->height - j0; 
+        vw[0] = 1.0 - vw[1];
+        vec3 r(0.0f, 0.0f, 0.0f);
+        for (int i = 0; i < 2; i++) 
+        {
+            for (int j = 0; j < 2; j++) 
+            {
+                int k = 3 * (((j0 + j) % tex->height) * tex->width + ((i0 + i) % tex->width));
+                for (int c = 0; c < 3; c++) 
+                {
+                    r[c] += uw[i] * vw[j] * tex->pixel[k + c];
+                }
+            }
+        }
+        return r;
+    }
+
     return Q.object->mat->Kd;
 }
 
@@ -771,5 +855,54 @@ float geometry(float vDotm, float vDotN, float alpha)
         float asquare = a * a;
 
         return (3.535f * a + 2.181 * asquare) / (1.0 + 2.276 * a + 2.577 * asquare);
+    }
+}
+
+#include "rgbe.h"
+void ReadHdrImage(const std::string readName, int& width, int& height, float*& image)
+{
+    // Write image to file in HDR (a.k.a RADIANCE) format
+    rgbe_header_info info;
+    char errbuf[100] = { 0 };
+
+    FILE* fp = fopen(readName.c_str(), "rb");
+    info.valid = false;
+    int r = RGBE_ReadHeader(fp, &width, &height, &info, errbuf);
+    if (r != RGBE_RETURN_SUCCESS)
+        printf("error: %s\n", errbuf);
+
+    image = new float[width * height * 3];
+
+    r = RGBE_ReadPixels_RLE(fp, image, width, height, errbuf);
+    if (r != RGBE_RETURN_SUCCESS)
+        printf("error: %s\n", errbuf);
+    fclose(fp);
+}
+
+void IBL::preprocess()
+{
+    pBuffer = new float[width * (height + 1)];
+    pUDist = &pBuffer[width * height];
+
+    float* pSinTheta = new float[height];
+    float angleFrac = PI / float(height);
+    float theta = angleFrac * 0.5f;
+
+    for (unsigned int i = 0; i < height; i++, theta += angleFrac)
+    {
+        pSinTheta[i] = sin(theta);
+    }
+
+    for (unsigned int i = 0, m = 0; i < width; i++, m += height)
+    {
+        float* pVDist = &pBuffer[m];
+        unsigned int k = i * 3;
+        pVDist[0] = 0.2126f * pixel[k + 0] + 0.7152f * pixel[k + 1] + 0.0722f * pixel[k + 2];
+        pVDist[0] *= pSinTheta[0];
+        for (unsigned int j = 1, k = (width + i) * 3; j < height; j++, k += width * 3)
+        {
+            float lum = 0.2126 * pixel[k + 0] + 0.7152 * pixel[k + 1] + 0.0722 * pixel[k + 2];
+            pVDist[j] = pVDist[j - 1] + lum * pSinTheta[j];
+        }
     }
 }
