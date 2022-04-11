@@ -133,6 +133,7 @@ xcopy .\libs\assimp\32\assimp.dll .\Release /Y /D</Command>
     <ClCompile Include="rgbe.cpp" />
     <ClInclude Include="acceleration.h" />
     <ClInclude Include="geom.h" />
+    <ClInclude Include="raytrace.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

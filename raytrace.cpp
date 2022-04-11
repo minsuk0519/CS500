@@ -145,7 +145,22 @@ void Scene::Command(const std::vector<std::string>& strings,
         // Creates a Shape instance for a sphere defined by a center and radius
         //realtime->sphere(vec3(f[1], f[2], f[3]), f[4], currentMat);
         Shape* shape = new Sphere(currentMat, vec3(f[1], f[2], f[3]), f[4]);
-        vectorOfShapes.push_back(shape);
+
+        if (comb == CSG_ROOT)
+        {
+            raymarching->root = shape;
+            comb = CSG_UNDEFINED;
+        }
+        else if (comb != CSG_UNDEFINED)
+        {
+            raymarching->childs.push_back(std::make_pair(comb, shape));
+            comb = CSG_UNDEFINED;
+        }
+        else
+        {
+            vectorOfShapes.push_back(shape);
+        }
+
         if (currentMat->isLight())
         {
             Light* light = dynamic_cast<Light*>(currentMat);
@@ -158,7 +173,22 @@ void Scene::Command(const std::vector<std::string>& strings,
         // syntax: box bx by bz   dx dy dz
         // Creates a Shape instance for a box defined by a corner point and diagonal vector
         Shape* shape = new Box(currentMat, vec3(f[1], f[2], f[3]), vec3(f[4], f[5], f[6]));
-        vectorOfShapes.push_back(shape);
+
+        if (comb == CSG_ROOT)
+        {
+            raymarching->root = shape;
+            comb = CSG_UNDEFINED;
+        }
+        else if (comb != CSG_UNDEFINED)
+        {
+            raymarching->childs.push_back(std::make_pair(comb, shape));
+            comb = CSG_UNDEFINED;
+        }
+        else
+        {
+            vectorOfShapes.push_back(shape);
+        }
+
         if (currentMat->isLight())
         {
             Light* light = dynamic_cast<Light*>(currentMat);
@@ -170,7 +200,22 @@ void Scene::Command(const std::vector<std::string>& strings,
         // syntax: cylinder bx by bz   ax ay az  r
         // Creates a Shape instance for a cylinder defined by a base point, axis vector, and radius
         Shape* shape = new Cylinder(currentMat, vec3(f[1], f[2], f[3]), vec3(f[4], f[5], f[6]), f[7]);
-        vectorOfShapes.push_back(shape);
+        
+        if (comb == CSG_ROOT)
+        {
+            raymarching->root = shape;
+            comb = CSG_UNDEFINED;
+        }
+        else if (comb != CSG_UNDEFINED)
+        {
+            raymarching->childs.push_back(std::make_pair(comb, shape));
+            comb = CSG_UNDEFINED;
+        }
+        else
+        {
+            vectorOfShapes.push_back(shape);
+        }
+
         if (currentMat->isLight())
         {
             Light* light = dynamic_cast<Light*>(currentMat);
@@ -198,6 +243,69 @@ void Scene::Command(const std::vector<std::string>& strings,
         ibl->preprocess();
         currentMat = ibl;
     }
+    else if (c == "raymarching")
+    {
+        raymarching = new RayMarchingObject(currentMat);
+        vectorOfShapes.push_back(raymarching);
+
+        comb = CSG_ROOT;
+    }
+    else if(c == "csg")
+    {
+        std::string c = strings[1];
+        Shape* shape;
+
+        if (c == "plane")
+        {
+            shape = new CSG_Plane(currentMat, vec3(f[2], f[3], f[4]), f[5], vec3(f[6], f[7], f[8]), vec3(f[9], f[10], f[11]));
+        }
+        else if (c == "torus")
+        {
+            shape = new CSG_Torus(currentMat, f[2], f[3], vec3(f[4], f[5], f[6]), vec3(f[7], f[8], f[9]));
+        }
+        else if (c == "cone")
+        {
+            shape = new CSG_Cone(currentMat, f[2], vec3(f[3], f[4], f[5]), vec3(f[6], f[7], f[8]));
+        }
+        else if (c == "curve")
+        {
+            shape = new CSG_Curve(currentMat, vec3(f[2], f[3], f[4]), vec3(f[5], f[6], f[7]));
+        }
+        else if (c == "raymarching")
+        {
+            RayMarchingObject* newraymarching = new RayMarchingObject(currentMat);
+            raymarching->childs.push_back(std::make_pair(comb, newraymarching));
+            raymarching = newraymarching;
+
+            comb = CSG_ROOT;
+
+            return;
+        }
+
+        if (comb == CSG_ROOT)
+        {
+            raymarching->root = shape;
+            comb = CSG_UNDEFINED;
+        }
+        else if (comb != CSG_UNDEFINED)
+        {
+            raymarching->childs.push_back(std::make_pair(comb, shape));
+            comb = CSG_UNDEFINED;
+        }
+
+        if (currentMat->isLight())
+        {
+            Light* light = dynamic_cast<Light*>(currentMat);
+            light->shape = shape;
+            lights.push_back(light);
+        }
+    }
+    else if (c == "union") comb = CSG_UNION;
+    else if (c == "unionsmooth") comb = CSG_SMOOTH_UNION;
+    else if (c == "subtraction") comb = CSG_SUBTRACTION;
+    else if (c == "subtractionsmooth") comb = CSG_SMOOTH_SUBTRACTION;
+    else if (c == "intersection") comb = CSG_INTERSECTION;
+    else if (c == "intersectionsmooth") comb = CSG_SMOOTH_INTERSECTION;
     else {
         fprintf(stderr, "\n*********************************************\n");
         fprintf(stderr, "* Unknown command: %s\n", c.c_str());
@@ -228,7 +336,9 @@ void Scene::TraceImage(Color* image, const int pass)
 
     for (int pass = 0; pass < PATH_PASS; ++pass)
     {
+#ifndef _DEBUG
 #pragma omp parallel for schedule(dynamic, 1) // Magic: Multi-thread y loop
+#endif
         for (int y = 0; y < height; y++) {
             fprintf(stderr, "%d, Rendering %4d\r", pass, y);
             for (int x = 0; x < width; x++) {
@@ -348,6 +458,11 @@ Color Scene::TracePath(const Ray& ray, AccelerationBvh& bvh)
     return C;
 }
 
+float Sphere::distance(vec3 P)
+{
+    return length(P - C) - r;
+}
+
 SimpleBox Sphere::boundingbox()
 {
     vec3 diag = vec3(r, r, r);
@@ -356,6 +471,26 @@ SimpleBox Sphere::boundingbox()
     boundingbox.extend(C + diag);
 
     return boundingbox;
+}
+
+float Cylinder::distance(vec3 P)
+{
+    vec3 diff = P - B;
+    float h = dot(A, A);
+    float theta = dot(diff, A);
+
+    float x = length(diff * h - A * theta) - r * h;
+    float y = abs(theta - h * 0.5) - h * 0.5;
+
+    if (x < 0.0f) x = 0.0f;
+    if (y < 0.0f) y = 0.0f;
+
+    float x2 = x * x;
+    float y2 = y * y * h;
+
+    float d = (std::max(x, y) < 0.0) ? -std::min(x2, y2) : x2 + y2;
+
+    return sqrt(abs(d)) / h;
 }
 
 SimpleBox Cylinder::boundingbox()
@@ -370,12 +505,29 @@ SimpleBox Cylinder::boundingbox()
     return boundingbox;
 }
 
+float Box::distance(vec3 P)
+{
+    vec3 max = C + d;
+    vec3 min = C;
+
+    float xmax = std::max(P.x - max.x, min.x - P.x);
+    float ymax = std::max(P.y - max.y, min.y - P.y);
+    float zmax = std::max(P.z - max.z, min.z - P.z);
+
+    return std::max(std::max(xmax, ymax), zmax);
+}
+
 SimpleBox Box::boundingbox()
 {
     SimpleBox boundingbox(C);
     boundingbox.extend(C + d);
 
     return boundingbox;
+}
+
+float Triangle::distance(vec3 P)
+{
+    return FLT_MAX;
 }
 
 SimpleBox Triangle::boundingbox()
@@ -439,19 +591,22 @@ Intersection Scene::SampleLight()
 
     double u = myrandom(RNGen);
     double v = myrandom(RNGen);
+
     float maxUVal = ibl->pUDist[ibl->width - 1];
-    float* pUPos = std::lower_bound(ibl->pUDist, ibl->pUDist + ibl->width,
-        u * maxUVal);
+    
+    float* pUPos = std::lower_bound(ibl->pUDist, ibl->pUDist + ibl->width, u * maxUVal);
+    
     int iu = pUPos - ibl->pUDist;
+
     float* pVDist = &ibl->pBuffer[ibl->height * iu];
-    float* pVPos = std::lower_bound(pVDist, pVDist + ibl->height,
-        v * pVDist[ibl->height - 1]);
+    float* pVPos = std::lower_bound(pVDist, pVDist + ibl->height, v * pVDist[ibl->height - 1]);
+    
     int iv = pVPos - pVDist;
+    
     double phi = 0 - 2 * PI * iu / ibl->width;
     double theta = PI * iv / ibl->height;
-    B.N = vec3(sin(theta) * cos(phi),
-        sin(theta) * sin(phi),
-        cos(theta));
+    
+    B.N = vec3(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
     B.P = B.N * 1000.0f;
     B.object = ibl->shape;
     return B;
@@ -471,27 +626,37 @@ float Scene::PdfLight(Intersection Q)
     IBL* ibl = dynamic_cast<IBL*>(lights.at(0));
 
     vec3 P = normalize(Q.P);
+    
     double fu = (0 - atan2(P[1], P[0])) / (PI * 2);
     fu = fu - floor(fu);
+    
     int u = floor(ibl->width * fu);
     int v = floor(ibl->height * acos(P[2]) / PI);
+    
     float angleFrac = PI / float(ibl->height);
+
     float* pVDist = &ibl->pBuffer[ibl->height * u];
+
     float pdfU = (u == 0) ? (ibl->pUDist[0]) : (ibl->pUDist[u] - ibl->pUDist[u - 1]);
     pdfU /= ibl->pUDist[ibl->width - 1];
     pdfU *= ibl->width / (PI * 2);
+    
     float pdfV = (v == 0) ? (pVDist[0]) : (pVDist[v] - pVDist[v - 1]);
     pdfV /= pVDist[ibl->height - 1];
     pdfV *= ibl->height / PI;
+
     float theta = angleFrac * 0.5 + angleFrac * v;
-    float pdf = pdfU * pdfV * sin(theta) / (4.0 * PI * 1000.0f * 1000.0f);
-    //printf("(%f %f %f) %d %d %g\n", P[0], P[1], P[2], u, v, pdf);
+
+    float r = 1000.0f;
+    float areaoflight = r * r * 4.0 * PI;
+    float pdf = pdfU * pdfV * sin(theta) / areaoflight;
+
     return pdf;
 
 
-    float r = dynamic_cast<Sphere*>(Q.object)->r;
-    float areaoflight = r * r * 4.0 * PI;
-    return 1.0f / (lights.size() * areaoflight);
+    //float r = dynamic_cast<Sphere*>(Q.object)->r;
+    //float areaoflight = r * r * 4.0 * PI;
+    //return 1.0f / (lights.size() * areaoflight);
 }
 
 vec3 SampleBrdf(vec3 wo, vec3 N, Material* mat)
@@ -592,19 +757,23 @@ vec3 EvalRadiance(Intersection Q)
         double u = (0 - atan2(P[1], P[0])) / (PI * 2);
         u = u - floor(u);
         double v = acos(P[2]) / PI;
+
         int i0 = floor(u * tex->width);
         int j0 = floor(v * tex->height);
+
         double uw[2], vw[2];
         uw[1] = u * tex->width - i0; 
         uw[0] = 1.0 - uw[1];
         vw[1] = v * tex->height - j0; 
         vw[0] = 1.0 - vw[1];
+
         vec3 r(0.0f, 0.0f, 0.0f);
         for (int i = 0; i < 2; i++) 
         {
             for (int j = 0; j < 2; j++) 
             {
                 int k = 3 * (((j0 + j) % tex->height) * tex->width + ((i0 + i) % tex->width));
+                
                 for (int c = 0; c < 3; c++) 
                 {
                     r[c] += uw[i] * vw[j] * tex->pixel[k + c];
@@ -879,30 +1048,246 @@ void ReadHdrImage(const std::string readName, int& width, int& height, float*& i
     fclose(fp);
 }
 
+float DistanceObject(vec3 P, Shape* input, Shape*& output)
+{
+    RayMarchingObject* raymarching = dynamic_cast<RayMarchingObject*>(input);
+
+    float result;
+    
+    if (CSG* csg = dynamic_cast<CSG*>(raymarching->root); csg != nullptr)
+    {
+        vec3 Pprime = csg->transform(P);
+
+        result = raymarching->root->distance(Pprime);
+    }
+    else
+    {
+        result = raymarching->root->distance(P);
+    }
+
+    output = raymarching->root;
+    for (std::pair<CSG_COMB, Shape*> child : raymarching->childs)
+    {
+        float target;
+        if (RayMarchingObject* raymarchingchild = dynamic_cast<RayMarchingObject*>(child.second))
+        {
+            target = DistanceObject(P, raymarchingchild, output);
+        }
+        else
+        {
+            if (CSG* csg = dynamic_cast<CSG*>(child.second); csg != nullptr)
+            {
+                vec3 Pprime = csg->transform(P);
+
+                target = child.second->distance(Pprime);
+            }
+            else
+            {
+                target = child.second->distance(P);
+            }
+        }
+
+        if (child.first == CSG_UNION)
+        {
+            result = std::min(target, result);
+            if (target == result) output = child.second;
+        }
+        else if (child.first == CSG_SMOOTH_UNION)
+        {
+            float k = 0.25f;
+            float h = 0.5 + 0.5 * (result - target) / k;
+            if (h > 1.0) h = 1.0;
+            if (h < 0.0) h = 0.0;
+
+            result = result * (1 - h) + target * h;
+            result -= k * h * (1.0 - h);
+            if (target == result) output = child.second;
+        }
+        else if (child.first == CSG_SUBTRACTION)
+        {
+            result = std::max(result, -target);
+        }
+        else if (child.first == CSG_SMOOTH_SUBTRACTION)
+        {
+            float k = 0.25f;
+
+            float h = 0.5 - 0.5 * (result + target) / k;
+            if (h > 1.0) h = 1.0;
+            if (h < 0.0) h = 0.0;
+
+            result = result * (1 - h) - target * h;
+            result += k * h * (1.0 - h);
+        }
+        else if (child.first == CSG_INTERSECTION)
+        {
+            result = std::max(result, target);
+        }
+        else if (child.first == CSG_SMOOTH_INTERSECTION)
+        {
+            float k = 0.25f;
+
+            float h = 0.5 - 0.5 * (result - target) / k;
+            if (h > 1.0) h = 1.0;
+            if (h < 0.0) h = 0.0;
+
+            result = result * (1 - h) + target * h;
+            result += k * h * (1.0 - h);
+        }
+    }
+    return result;
+}
+
 void IBL::preprocess()
 {
-    pBuffer = new float[width * (height + 1)];
-    pUDist = &pBuffer[width * height];
-
     float* pSinTheta = new float[height];
     float angleFrac = PI / float(height);
     float theta = angleFrac * 0.5f;
 
-    for (unsigned int i = 0; i < height; i++, theta += angleFrac)
+    for (unsigned int i = 0; i < height; ++i)
     {
         pSinTheta[i] = sin(theta);
+
+        theta += angleFrac;
     }
 
-    for (unsigned int i = 0, m = 0; i < width; i++, m += height)
+    pBuffer = new float[width * (height + 1)];
+    pUDist = &pBuffer[width * height];
+
+    for (unsigned int i = 0; i < width; ++i)
     {
-        float* pVDist = &pBuffer[m];
-        unsigned int k = i * 3;
-        pVDist[0] = 0.2126f * pixel[k + 0] + 0.7152f * pixel[k + 1] + 0.0722f * pixel[k + 2];
+        float* pVDist = &pBuffer[i * height];
+ 
+        pVDist[0] = 0.2126f * pixel[i * 3 + 0] + 0.7152f * pixel[i * 3 + 1] + 0.0722f * pixel[i * 3 + 2];
         pVDist[0] *= pSinTheta[0];
-        for (unsigned int j = 1, k = (width + i) * 3; j < height; j++, k += width * 3)
+
+        for (unsigned int j = 1; j < height; j++)
         {
-            float lum = 0.2126 * pixel[k + 0] + 0.7152 * pixel[k + 1] + 0.0722 * pixel[k + 2];
+            float lum = 0.2126f * pixel[(width + i + j) * 3 + 0] + 0.7152f * pixel[(width + i + j) * 3 + 1] + 0.0722f * pixel[(width + i + j) * 3 + 2];
             pVDist[j] = pVDist[j - 1] + lum * pSinTheta[j];
         }
+
+        if (i == 0)
+        {
+            pUDist[i] = pVDist[height - 1];
+        }
+        else
+        {
+            pUDist[i] = pUDist[i - 1] + pVDist[height - 1];
+        }
     }
+}
+
+float CSG_Plane::distance(vec3 P)
+{
+    return dot(N, P) + d;
+}
+
+SimpleBox CSG_Plane::boundingbox()
+{
+    return SimpleBox();
+}
+
+float CSG_Torus::distance(vec3 P)
+{
+    vec3 Pxy = vec3(P.x, P.y, 0.0);
+    vec3 v = vec3(length(Pxy) - R, P.z, 0.0);
+    return length(v) - r;
+}
+
+SimpleBox CSG_Torus::boundingbox()
+{
+    SimpleBox result;
+    result.extend(glm::vec3(-10, -10, -10));
+    result.extend(glm::vec3(10, 10, 10));
+    return result;
+
+    return SimpleBox();
+}
+
+// not exact calculation
+float CSG_Cone::distance(vec3 P)
+{
+    return length(vec3(P.x, P.y, 1.0)) * cos(theta) - abs(P.z) * sin(theta);
+}
+
+SimpleBox CSG_Cone::boundingbox()
+{
+    return SimpleBox();
+}
+
+//this function should not be called!
+float RayMarchingObject::distance(vec3 P)
+{
+    printf("cannot be called!");
+    return 0.0f;
+}
+
+SimpleBox RayMarchingObject::boundingbox()
+{
+    SimpleBox result = root->boundingbox();
+    for (std::pair<CSG_COMB, Shape*> child : childs)
+    {
+        SimpleBox bb = child.second->boundingbox();
+        result.extend(vec3FromBvh(bb.min));
+        result.extend(vec3FromBvh(bb.max));
+    }
+    return result;
+}
+
+vec3 CSG::transform(vec3 P)
+{
+    vec3 result = P - pos;
+
+    result = rot * result;
+
+
+    //result += vec3(sin(20.0 * result.x) * sin(20.0 * result.y) * sin(20.0 * result.z)) * 0.05f;
+
+
+    return result;
+}
+
+float capsuledistance(vec3 P, vec3 offset)
+{
+    //P -= offset;
+
+    //const float height = 0.2;
+    //const float r = 0.2;
+    //float zoffset = P.z;
+    //if (P.z < 0.0) zoffset = 0.0;
+    //else if (P.z > height) zoffset = height;
+    //P.z -= zoffset;
+    //return length(P) - r;
+
+    const float r = 0.1f;
+
+    return length(P - offset) - r;
+}
+
+float CSG_Curve::distance(vec3 P)
+{
+    float result = FLT_MAX;
+
+    for (vec3 pt : pts)
+    {
+        float target = capsuledistance(P, pt);
+
+        float k = 0.1f;
+        float h = 0.5 + 0.5 * (result - target) / k;
+        if (h > 1.0) h = 1.0;
+        if (h < 0.0) h = 0.0;
+
+        result = result * (1 - h) + target * h;
+        result -= k * h * (1.0 - h);
+    }
+    
+    return result;
+}
+
+SimpleBox CSG_Curve::boundingbox()
+{
+    SimpleBox result;
+    result.extend(glm::vec3(-10, -10, -10));
+    result.extend(glm::vec3(10, 10, 10));
+    return result;
 }

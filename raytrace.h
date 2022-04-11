@@ -102,6 +102,8 @@ enum SHAPE_TYPE
     SHAPE_CYLINDER,
     SHAPE_BOX,
     SHAPE_TRIANGLE,
+    SHAPE_CSG,
+    SHAPE_RayMarching,
 };
 
 class Slab
@@ -118,6 +120,8 @@ public:
     Material* mat;
     SHAPE_TYPE type;
 
+    virtual float distance(vec3 P) = 0;
+
     virtual SimpleBox boundingbox() = 0;
 };
 
@@ -127,6 +131,8 @@ public:
     Sphere(Material* material, const vec3& center, const float radius) : Shape(material, SHAPE_SPHERE), C(center), r(radius) {}
     vec3 C;
     float r;
+
+    virtual float distance(vec3 P) override;
 
     virtual SimpleBox boundingbox() override;
 };
@@ -139,6 +145,8 @@ public:
     vec3 A;
     float r;
 
+    virtual float distance(vec3 P) override;
+
     virtual SimpleBox boundingbox() override;
 };
 
@@ -148,6 +156,8 @@ public:
     Box(Material* material, const vec3& corner, const vec3& diagonal) : Shape(material, SHAPE_BOX), C(corner), d(diagonal) {}
     vec3 C;
     vec3 d;
+
+    virtual float distance(vec3 P) override;
 
     virtual SimpleBox boundingbox() override;
 };
@@ -173,6 +183,193 @@ public:
     std::optional<vec2> T1;
     std::optional<vec2> T2;
 
+    virtual float distance(vec3 P) override;
+
+    virtual SimpleBox boundingbox() override;
+};
+
+enum CSG_INDEX
+{
+    CSG_PLANE,
+    CSG_CONE,
+    CSG_TORUS,
+};
+
+enum CSG_COMB
+{
+    CSG_UNION,
+    CSG_SMOOTH_UNION,
+    CSG_SUBTRACTION,
+    CSG_SMOOTH_SUBTRACTION,
+    CSG_INTERSECTION,
+    CSG_SMOOTH_INTERSECTION,
+    CSG_UNDEFINED,
+    CSG_ROOT,
+};
+
+class RayMarchingObject : public Shape
+{
+public:
+    RayMarchingObject(Material* material) : Shape(material, SHAPE_RayMarching) {}
+
+    Shape* root;
+    std::vector<std::pair<CSG_COMB, Shape*>> childs;
+
+    virtual float distance(vec3 P);
+    virtual SimpleBox boundingbox() override;
+};
+
+class CSG : public Shape
+{
+public:
+    CSG(Material* material, vec3 p, vec3 r) : Shape(material, SHAPE_CSG), pos(p)
+    {
+        rot = glm::rotation(vec3(0, 0, 1), r);
+    }
+
+    quat rot;
+    vec3 pos;
+
+    vec3 transform(vec3 P);
+
+    virtual float distance(vec3 P) = 0;
+};
+
+class CSG_Plane : public CSG
+{
+public:
+    CSG_Plane(Material* material, vec3 n, float c, vec3 r, vec3 p) : CSG(material, r, p), N(n), d(c) {}
+
+    vec3 N;
+    float d;
+
+    virtual float distance(vec3 P) override;
+    virtual SimpleBox boundingbox() override;
+};
+
+class CSG_Cone : public CSG
+{
+public:
+    CSG_Cone(Material* material, float angle, vec3 r, vec3 p) : CSG(material, r, p), theta(angle) {}
+
+    float theta;
+
+    virtual float distance(vec3 P) override;
+    virtual SimpleBox boundingbox() override;
+};
+
+class CSG_Torus : public CSG
+{
+public:
+    CSG_Torus(Material* material, float radius1, float radius2, vec3 r, vec3 p) : CSG(material, r, p), R(radius1), r(radius2) {}
+
+    float R;
+    float r;
+
+    virtual float distance(vec3 P) override;
+    virtual SimpleBox boundingbox() override;
+};
+
+class CSG_Curve : public CSG
+{
+public:
+    CSG_Curve(Material* material, vec3 r, vec3 p) : CSG(material, r, p) 
+    {
+        std::vector<vec3> control;
+        std::vector<float> knots;
+        control.push_back(vec3(0, 30, -372));
+        control.push_back(vec3(0, 49, -121));
+        control.push_back(vec3(0, 71, -283));
+        control.push_back(vec3(0, 99, -133));
+        control.push_back(vec3(0, 107, -251));
+        control.push_back(vec3(0, 141, -242));
+        control.push_back(vec3(0, 147, -151));
+        control.push_back(vec3(0, 146, -253));
+        control.push_back(vec3(0, 179, -243));
+        control.push_back(vec3(0, 178, -181));
+        control.push_back(vec3(0, 229, -182));
+        control.push_back(vec3(0, 227, -250));
+        control.push_back(vec3(0, 325, -237));
+        control.push_back(vec3(0, 281, -202));
+        control.push_back(vec3(0, 257, -179));
+        control.push_back(vec3(0, 293, -168));
+        control.push_back(vec3(0, 332, -170));
+        control.push_back(vec3(0, 333, -240));
+        control.push_back(vec3(0, 379, -234));
+        control.push_back(vec3(0, 376, -166));
+        control.push_back(vec3(0, 386, -226));
+        control.push_back(vec3(0, 429, -263));
+        control.push_back(vec3(0, 418, -159));
+        control.push_back(vec3(0, 430, -219));
+        control.push_back(vec3(0, 462, -180));
+        control.push_back(vec3(0, 455, -206));
+        control.push_back(vec3(0, 419, -218));
+        control.push_back(vec3(0, 508, -286));
+
+        for (int i = 0; i < 30; ++i)
+        {
+            knots.push_back(i);
+        }
+
+        const int N = 29;
+        const int s = 27;
+        const int d = 2;
+        vec3 Q[s + 1];
+
+        vec3 scale = vec3(1.0f / 75.0f);
+
+        vec3 prev;
+
+        for (float t = 2; t < 28;)
+        {
+            for (int i = 0; i < s + 1; ++i)
+            {
+                Q[i] = control[i];
+            }
+
+            int J;
+            for (J = d; J < N - d; ++J)
+            {
+                if (knots[J] <= t && knots[J + 1] > t)
+                {
+                    break;
+                }
+            }
+
+            for (int p = 1; p <= s; ++p)
+            {
+                for (int i = J; i >= J - d + p; --i)
+                {
+                    Q[i] = Q[i] * ((t - knots[i]) /
+                        (knots[i + d - p + 1] - knots[i])) +
+                        Q[i - 1] * ((knots[i + d - p + 1] - t) /
+                            (knots[i + d - p + 1] - knots[i]));
+                }
+            }
+
+            if (t == 2)
+            {
+                pts.push_back(scale * Q[J]);
+            }
+            else
+            {
+                auto c = length(prev - Q[J]);
+                if (c > 10.0f)
+                {
+                    pts.push_back(scale * Q[J]);
+                    prev = Q[J];
+                }
+            }
+
+            t += 0.01f;
+        }
+
+        rot = glm::rotation(vec3(0, 1, 0), normalize(vec3(1.8, 2, 0)));
+    }
+
+    std::vector<vec3> pts;
+
+    virtual float distance(vec3 P) override;
     virtual SimpleBox boundingbox() override;
 };
 
@@ -191,6 +388,8 @@ public:
     std::vector<Shape*> vectorOfShapes;
 
     Material* currentMat;
+    RayMarchingObject* raymarching;
+    CSG_COMB comb = CSG_UNDEFINED;
 
     Scene();
     void Finit();
@@ -234,3 +433,5 @@ float geometry_smith(vec3 wi, vec3 w0, vec3 m, vec3 N, float alpha);
 float geometry(float vDotm, float vDotN, float alpha);
 
 void ReadHdrImage(const std::string readName, int& width, int& height, float*& image);
+
+float DistanceObject(vec3 P, Shape* input, Shape*& output);

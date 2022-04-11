@@ -325,6 +325,52 @@ std::optional<Intersection> BvhShape::intersect(const bvh::Ray<float>& bvhray) c
         else intersection.UV = vec2(0, 0);
         intersection.object = shape;
     }
+    else
+    {
+        float t = 0.001f;
+
+        vec3 D = vec3FromBvh(bvhray.direction);
+        vec3 O = vec3FromBvh(bvhray.origin);
+
+        Shape* selectedmat;
+
+        int step = 0;
+        while (true)
+        {
+            vec3 P = t * D + O;
+
+            //P += vec3(sin(20.0 * P.x) * sin(20.0 * P.y) * sin(20.0 * P.z)) * 0.05f;
+            
+
+            float dt = DistanceObject(P, shape, selectedmat);
+            t += abs(dt);
+
+            ++step;
+
+            if (dt < 0.000001) break;
+            if (step > 2500) return std::nullopt;
+            if (t >= 10000) return std::nullopt;
+        }
+
+        if (t <= 0.001f) return std::nullopt;
+
+        vec3 P = t * D + O;
+        float h = 0.001;
+
+        Shape* a;
+
+        float nx = DistanceObject(vec3(P.x + h, P.y, P.z), shape, a) - DistanceObject(vec3(P.x - h, P.y, P.z), shape, a);
+        float ny = DistanceObject(vec3(P.x, P.y + h, P.z), shape, a) - DistanceObject(vec3(P.x, P.y - h, P.z), shape, a);
+        float nz = DistanceObject(vec3(P.x, P.y, P.z + h), shape, a) - DistanceObject(vec3(P.x, P.y, P.z - h), shape, a);
+        vec3 N = normalize(vec3(nx, ny, nz));
+        intersection.P = P;
+        intersection.N = N;
+        intersection.object = selectedmat;
+        intersection.t = t;
+        intersection.UV = vec2(0, 0);
+
+        return intersection;
+    }
 
     if (intersection.t == 0) return std::nullopt;
     if (intersection.t < bvhray.tmin || intersection.t > bvhray.tmax) return std::nullopt;
